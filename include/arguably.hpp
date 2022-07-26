@@ -535,6 +535,10 @@ namespace Arguably {
                         data.advance();
                         break;
                     }
+                    case ParserState::DoubleDashArgument:
+                        break;
+                    case ParserState::UnnamedArgument:
+                        break;
                 }
             }
             m_parse_result = Result::Okay{};
