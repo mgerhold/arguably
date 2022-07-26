@@ -10,14 +10,36 @@
 #include <cstring>
 #include <fmt/core.h>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 #include <vector>
-#include <sstream>
 
 namespace Arguably {
+    namespace Result {
+        struct MissingArgument {
+            char abbreviation;
+        };
+
+        struct NothingParsedYet { };
+        struct UnknownOption {
+            std::variant<char, std::string> option;
+        };
+        struct CannotParseAgain { };
+        struct Okay { };
+    }// namespace Result
+
+    using ParseResult = std::variant<
+            Result::Okay,
+            Result::NothingParsedYet,
+            Result::MissingArgument,
+            Result::UnknownOption,
+            Result::CannotParseAgain>;
+
+
     using usize = std::size_t;
     using u8 = std::uint8_t;
 
@@ -222,7 +244,7 @@ namespace Arguably {
     }
 
     template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
-    auto get_default_value([[maybe_unused]]const AnyVector& default_values) {
+    auto get_default_value([[maybe_unused]] const AnyVector& default_values) {
         if constexpr (Argument::abbreviation == Abbreviation) {
             return std::any_cast<typename Argument::ValueType>(default_values[Offset]);
         } else if constexpr (sizeof...(Rest) > 0) {
@@ -246,6 +268,80 @@ namespace Arguably {
             throw;
         }
     }
+
+    struct ArgumentsView {
+        usize argument_index{ 1 };
+        usize char_offset{ 0 };
+        usize argc;
+        const char** argv;
+
+        [[nodiscard]] char current() const {
+            const auto at_current = argv[argument_index][char_offset];
+            return at_current == '\0' ? ' ' : at_current;
+        }
+
+        [[nodiscard]] char consume() {
+            const auto result = current();
+            advance();
+            return result;
+        }
+
+        [[nodiscard]] char peek() const {
+            if (eof()) {
+                return '\0';
+            }
+            const auto [new_argument_index, new_char_offset] = *next_position();
+            const auto next_char = argv[new_argument_index][new_char_offset];
+            return next_char == '\0' ? ' ' : next_char;
+        }
+
+        void next_arg() {
+            ++argument_index;
+            char_offset = 0;
+        }
+
+        [[nodiscard]] std::optional<std::pair<usize, usize>> next_position() const {
+            if (argument_index >= argc) {
+                return {};
+            }
+            if (argv[argument_index][char_offset] == '\0') {
+                if (argument_index >= argc - 1) {
+                    return {};
+                }
+                return {
+                    std::pair{argument_index + 1, 0}
+                };
+            }
+            return {
+                std::pair{argument_index, char_offset + 1}
+            };
+        }
+
+        void advance() {
+            if (eof()) {
+                return;
+            }
+
+            const auto [new_argument_index, new_char_offset] = *next_position();
+            argument_index = new_argument_index;
+            char_offset = new_char_offset;
+        }
+
+        [[nodiscard]] std::string_view arg_tail() const {
+            return std::string_view{ argv[argument_index] }.substr(char_offset);
+        }
+
+        [[nodiscard]] std::string_view consume_arg() {
+            const auto result = arg_tail();
+            ++argument_index;
+            char_offset = 0;
+            return result;
+        }
+
+        [[nodiscard]] bool eof() const {
+            return not next_position().has_value();
+        }
+    };
 
     template<String HelpText, typename... Arguments>
     class Parser {
@@ -303,6 +399,19 @@ namespace Arguably {
         }
 
     public:
+        operator bool() const {
+            return std::holds_alternative<Result::Okay>(m_parse_result);
+        }
+
+        [[nodiscard]] ParseResult result() const {
+            return m_parse_result;
+        }
+
+        template<typename T>
+        [[nodiscard]] bool result_is() const {
+            return std::holds_alternative<T>(m_parse_result);
+        }
+
         template<char Abbreviation>
         [[nodiscard]] static consteval bool has_abbreviation() {
             return has_abbreviation_impl<Abbreviation, Arguments...>();
@@ -349,80 +458,6 @@ namespace Arguably {
             return get_default_value<Abbreviation, 0, Arguments...>(m_values);
         }
 
-        struct ArgumentsView {
-            usize argument_index{ 1 };
-            usize char_offset{ 0 };
-            usize argc;
-            const char** argv;
-
-            [[nodiscard]] char current() const {
-                const auto at_current = argv[argument_index][char_offset];
-                return at_current == '\0' ? ' ' : at_current;
-            }
-
-            [[nodiscard]] char consume() {
-                const auto result = current();
-                advance();
-                return result;
-            }
-
-            [[nodiscard]] char peek() const {
-                if (eof()) {
-                    return '\0';
-                }
-                const auto [new_argument_index, new_char_offset] = *next_position();
-                const auto next_char = argv[new_argument_index][new_char_offset];
-                return next_char == '\0' ? ' ' : next_char;
-            }
-
-            void next_arg() {
-                ++argument_index;
-                char_offset = 0;
-            }
-
-            [[nodiscard]] std::optional<std::pair<usize, usize>> next_position() const {
-                if (argument_index >= argc) {
-                    return {};
-                }
-                if (argv[argument_index][char_offset] == '\0') {
-                    if (argument_index >= argc - 1) {
-                        return {};
-                    }
-                    return {
-                        std::pair{argument_index + 1, 0}
-                    };
-                }
-                return {
-                    std::pair{argument_index, char_offset + 1}
-                };
-            }
-
-            void advance() {
-                if (eof()) {
-                    return;
-                }
-
-                const auto [new_argument_index, new_char_offset] = *next_position();
-                argument_index = new_argument_index;
-                char_offset = new_char_offset;
-            }
-
-            [[nodiscard]] std::string_view arg_tail() const {
-                return std::string_view{ argv[argument_index] }.substr(char_offset);
-            }
-
-            [[nodiscard]] std::string_view consume_arg() {
-                const auto result = arg_tail();
-                ++argument_index;
-                char_offset = 0;
-                return result;
-            }
-
-            [[nodiscard]] bool eof() const {
-                return not next_position().has_value();
-            }
-        };
-
         [[nodiscard]] static usize get_argc(const char** argv) {
             usize i;
             for (i = 1; argv[i] != nullptr; ++i) { }
@@ -442,6 +477,11 @@ namespace Arguably {
         }
 
         void parse(const char** argv) {
+            if (not std::holds_alternative<Result::NothingParsedYet>(m_parse_result)) {
+                m_parse_result = Result::CannotParseAgain{};
+                return;
+            }
+
             auto data = ArgumentsView{ .argc{ get_argc(argv) }, .argv{ argv } };
             auto state = ParserState::None;
 
@@ -479,7 +519,8 @@ namespace Arguably {
                             if (tail.empty()) {
                                 data.next_arg();
                                 if (data.eof()) {
-                                    // ERROR => throw exception
+                                    m_parse_result = Result::MissingArgument{ .abbreviation{ parameter_abbreviation } };
+                                    return;
                                 }
                                 const auto argument = data.arg_tail();
                                 store_at(index, argument);
@@ -488,13 +529,15 @@ namespace Arguably {
                             }
                             data.next_arg();
                         } else {
-                            // ERROR => unknown option
+                            m_parse_result = Result::UnknownOption{ .option{ data.current() } };
+                            return;
                         }
                         data.advance();
                         break;
                     }
                 }
             }
+            m_parse_result = Result::Okay{};
         }
 
     public:
@@ -506,6 +549,7 @@ namespace Arguably {
         std::array<std::string_view, sizeof...(Arguments)> m_raw_values;
         // std::array<bool, sizeof...(Arguments)> m_argument_found;
         AnyVector m_values;
+        ParseResult m_parse_result = Result::NothingParsedYet{};
 
         template<String, typename...>
         friend class ParserBuilder;
