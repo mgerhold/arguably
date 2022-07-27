@@ -30,6 +30,10 @@ namespace Arguably {
         };
         struct CannotParseAgain { };
         struct Okay { };
+        struct ExcessUnnamedArguments { };
+        struct CannotSetValueOfFlag {
+            std::string option;
+        };
     }// namespace Result
 
     using ParseResult = std::variant<
@@ -37,7 +41,9 @@ namespace Arguably {
             Result::NothingParsedYet,
             Result::MissingArgument,
             Result::UnknownOption,
-            Result::CannotParseAgain>;
+            Result::CannotParseAgain,
+            Result::ExcessUnnamedArguments,
+            Result::CannotSetValueOfFlag>;
 
 
     using usize = std::size_t;
@@ -66,7 +72,7 @@ namespace Arguably {
     };
 
     template<char Abbreviation, String Name, String Description, typename Type>
-    struct Argument {
+    struct OptionallyNamedParameter {
         using ValueType = Type;
 
         constexpr static char abbreviation{ Abbreviation };
@@ -75,7 +81,7 @@ namespace Arguably {
     };
 
     template<char Abbreviation, String Name, String Description, typename Type>
-    struct Parameter {
+    struct NamedParameter {
         using ValueType = Type;
 
         constexpr static char abbreviation{ Abbreviation };
@@ -111,22 +117,23 @@ namespace Arguably {
     }
 
     template<char Abbreviation, String Name, String Description, typename Type>
-    [[nodiscard]] constexpr bool is_parameter(Parameter<Abbreviation, Name, Description, Type>) {
+    [[nodiscard]] constexpr bool is_named_parameter(NamedParameter<Abbreviation, Name, Description, Type>) {
         return true;
     }
 
     template<typename T>
-    [[nodiscard]] constexpr bool is_parameter(T) {
+    [[nodiscard]] constexpr bool is_named_parameter(T) {
         return false;
     }
 
     template<char Abbreviation, String Name, String Description, typename Type>
-    [[nodiscard]] constexpr bool is_argument(Argument<Abbreviation, Name, Description, Type>) {
+    [[nodiscard]] constexpr bool
+    is_optionally_named_parameter(OptionallyNamedParameter<Abbreviation, Name, Description, Type>) {
         return true;
     }
 
     template<typename T>
-    [[nodiscard]] constexpr bool is_argument(T) {
+    [[nodiscard]] constexpr bool is_optionally_named_parameter(T) {
         return false;
     }
 
@@ -144,7 +151,7 @@ namespace Arguably {
         if constexpr (sizeof...(Arguments) == 0) {
             return 0;
         } else {
-            return static_cast<usize>((is_parameter(Arguments{}) + ...));
+            return static_cast<usize>((is_named_parameter(Arguments{}) + ...));
         }
     }
 
@@ -153,7 +160,7 @@ namespace Arguably {
         if constexpr (sizeof...(Arguments) == 0) {
             return 0;
         } else {
-            return static_cast<usize>((is_argument(Arguments{}) + ...));
+            return static_cast<usize>((is_optionally_named_parameter(Arguments{}) + ...));
         }
     }
 
@@ -168,6 +175,18 @@ namespace Arguably {
         }
     }
 
+    template<typename First, typename... Rest>
+    [[nodiscard]] constexpr std::optional<char> get_abbreviation_of_name_impl(const std::string_view name) {
+        if (First::name == name) {
+            return First::abbreviation;
+        }
+        if constexpr (sizeof...(Rest) > 0) {
+            return get_abbreviation_of_name_impl<Rest...>(name);
+        } else {
+            return {};
+        }
+    }
+
     template<typename... Arguments>
     [[nodiscard]] constexpr bool is_flag_impl([[maybe_unused]] const char abbreviation) {
         if constexpr (sizeof...(Arguments) == 0) {
@@ -178,20 +197,20 @@ namespace Arguably {
     }
 
     template<typename... Arguments>
-    [[nodiscard]] constexpr bool is_parameter_impl([[maybe_unused]] const char abbreviation) {
+    [[nodiscard]] constexpr bool is_named_parameter_impl([[maybe_unused]] const char abbreviation) {
         if constexpr (sizeof...(Arguments) == 0) {
             return false;
         } else {
-            return ((is_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
+            return ((is_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
         }
     }
 
     template<typename... Arguments>
-    [[nodiscard]] constexpr bool is_argument_impl([[maybe_unused]] const char abbreviation) {
+    [[nodiscard]] constexpr bool is_optionally_named_parameter_impl([[maybe_unused]] const char abbreviation) {
         if constexpr (sizeof...(Arguments) == 0) {
             return false;
         } else {
-            return ((is_argument(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
+            return ((is_optionally_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
         }
     }
 
@@ -343,6 +362,20 @@ namespace Arguably {
         }
     };
 
+    template<usize Offset, typename First, typename... Rest, usize NumArgs>
+    [[nodiscard]] std::optional<char> abbreviation_of_first_unseen_optionally_named(
+            const std::array<bool, NumArgs>& found_args
+    ) {
+        if (not found_args[Offset] and is_optionally_named_parameter(First{})) {
+            return First::abbreviation;
+        }
+        if constexpr (sizeof...(Rest) > 0) {
+            return abbreviation_of_first_unseen_optionally_named<Offset + 1, Rest...>(found_args);
+        } else {
+            return {};
+        }
+    }
+
     template<String HelpText, typename... Arguments>
     class Parser {
     private:
@@ -417,16 +450,20 @@ namespace Arguably {
             return has_abbreviation_impl<Abbreviation, Arguments...>();
         }
 
+        [[nodiscard]] std::optional<char> get_abbreviation_of_name(const std::string_view name) {
+            return get_abbreviation_of_name_impl<Arguments...>(name);
+        }
+
         [[nodiscard]] static constexpr bool is_flag(const char abbreviation) {
             return is_flag_impl<Arguments...>(abbreviation);
         }
 
-        [[nodiscard]] static constexpr bool is_parameter(const char abbreviation) {
-            return is_parameter_impl<Arguments...>(abbreviation);
+        [[nodiscard]] static constexpr bool is_named_parameter(const char abbreviation) {
+            return is_named_parameter_impl<Arguments...>(abbreviation);
         }
 
-        [[nodiscard]] static constexpr bool is_argument(const char abbreviation) {
-            return is_argument_impl<Arguments...>(abbreviation);
+        [[nodiscard]] static constexpr bool is_optionally_named_parameter(const char abbreviation) {
+            return is_optionally_named_parameter_impl<Arguments...>(abbreviation);
         }
 
         template<char Abbreviation>
@@ -436,6 +473,10 @@ namespace Arguably {
         }
 
         void print_help(std::FILE* file = stdout) const {
+            const auto help_text = static_cast<std::string_view>(HelpText);
+            if (not help_text.empty()) {
+                fmt::print(file, "{}\n", help_text);
+            }
             print_help<Arguments...>(file, max_name_length<Arguments...>());
         }
 
@@ -467,13 +508,18 @@ namespace Arguably {
         enum class ParserState {
             SingleDashArguments,
             DoubleDashArgument,
-            UnnamedArgument,
             None,
         };
 
         template<typename T>
         void store_at(usize index, T&& value) {
+            m_arguments_found[index] = true;
             store_at_impl<0, Arguments...>(m_values, index, std::forward<T>(value));
+        }
+
+        void set_flag(usize index) {
+            m_arguments_found[index] = true;
+            m_values[index] = true;
         }
 
         void parse(const char** argv) {
@@ -499,59 +545,150 @@ namespace Arguably {
                                 state = ParserState::SingleDashArguments;
                             }
                             data.advance();
+                            break;
+                        }
+                        if (not std::isspace(data.current())) {
+                            if (not handle_unnamed_argument(data)) {
+                                return;
+                            }
                         }
                         break;
                     case ParserState::SingleDashArguments: {
-                        if (isspace(data.current())) {
-                            state = ParserState::None;
-                            data.advance();
-                            break;
-                        }
-                        if (is_flag(data.current())) {
-                            fmt::print("{} is a flag!\n", data.current());
-                            const auto index = index_of(data.current());
-                            m_values[index] = true;
-                        } else if (is_parameter(data.current())) {
-                            fmt::print("{} is a parameter!\n", data.current());
-                            const auto parameter_abbreviation = data.consume();
-                            const auto tail = data.arg_tail();
-                            const auto index = index_of(parameter_abbreviation);
-                            if (tail.empty()) {
-                                data.next_arg();
-                                if (data.eof()) {
-                                    m_parse_result = Result::MissingArgument{ .abbreviation{ parameter_abbreviation } };
-                                    return;
-                                }
-                                const auto argument = data.arg_tail();
-                                store_at(index, argument);
-                            } else {
-                                store_at(index, tail);
-                            }
-                            data.next_arg();
-                        } else {
-                            m_parse_result = Result::UnknownOption{ .option{ data.current() } };
+                        if (not handle_single_dash_arguments(data, state)) {
                             return;
                         }
-                        data.advance();
                         break;
                     }
                     case ParserState::DoubleDashArgument:
-                        break;
-                    case ParserState::UnnamedArgument:
+                        if (not handle_double_dash_argument(data, state)) {
+                            return;
+                        }
                         break;
                 }
             }
             m_parse_result = Result::Okay{};
         }
 
-    public:
-        static constexpr usize num_flags = count_flags<Arguments...>();
-        static constexpr usize num_parameters = count_parameters<Arguments...>();
-        static constexpr usize num_arguments = count_arguments<Arguments...>();
+    private:
+        /// returns false on error
+        [[nodiscard]] bool handle_unnamed_argument(ArgumentsView& data) {
+            const auto argument = data.arg_tail();
+            fmt::print(stderr, "found optionally named argument: {}\n", argument);
+            const auto abbreviation = abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found);
+            if (not abbreviation.has_value()) {
+                m_parse_result = Result::ExcessUnnamedArguments{};
+                return false;
+            }
+            const auto index = index_of(*abbreviation);
+            store_at(index, argument);
+            data.next_arg();
+            return true;
+        }
+
+        /// returns false on error
+        [[nodiscard]] bool handle_single_dash_arguments(ArgumentsView& data, ParserState& state) {
+            if (isspace(data.current())) {
+                state = ParserState::None;
+                data.advance();
+                return true;
+            }
+            if (is_flag(data.current())) {
+                fmt::print("{} is a flag!\n", data.current());
+                const auto index = index_of(data.current());
+                set_flag(index);
+                data.advance();
+            } else if (is_named_parameter(data.current()) or is_optionally_named_parameter(data.current())) {
+                fmt::print("{} is a (optionally) parameter!\n", data.current());
+                const auto parameter_abbreviation = data.consume();
+                const auto tail = data.arg_tail();
+                const auto index = index_of(parameter_abbreviation);
+                if (tail.empty()) {
+                    data.next_arg();
+                    if (data.eof()) {
+                        m_parse_result = Result::MissingArgument{ .abbreviation{ parameter_abbreviation } };
+                        return false;
+                    }
+                    const auto argument = data.arg_tail();
+                    store_at(index, argument);
+                } else {
+                    store_at(index, tail);
+                }
+                data.next_arg();
+                state = ParserState::None;
+            } else {
+                m_parse_result = Result::UnknownOption{ .option{ data.current() } };
+                return false;
+            }
+            return true;
+        }
+
+        /// returns false on error
+        [[nodiscard]] bool handle_double_dash_argument(ArgumentsView& data, ParserState& state) {
+            const auto arg_tail = data.arg_tail();
+            const auto equals_index = arg_tail.find('=');
+            const auto equals_found = (equals_index != decltype(arg_tail)::npos);
+
+            fmt::print(stderr, "double dash argument\n");
+
+            if (equals_found) {
+                fmt::print(stderr, "equals found\n");
+
+                const auto parameter = arg_tail.substr(0, equals_index);
+                const auto abbreviation = get_abbreviation_of_name(parameter);
+                if (not abbreviation) {
+                    m_parse_result = Result::UnknownOption{ std::string{ parameter } };
+                    return false;
+                }
+                if (is_flag(*abbreviation)) {
+                    m_parse_result = Result::CannotSetValueOfFlag{ std::string{ parameter } };
+                    return false;
+                }
+
+                const auto argument = arg_tail.substr(equals_index + 1);
+                if (argument.empty()) {
+                    m_parse_result = Result::MissingArgument{};
+                    return false;
+                }
+
+                const auto index = index_of(*abbreviation);
+                store_at(index, argument);
+                data.next_arg();
+            } else {
+                fmt::print(stderr, "no equals found\n");
+
+                const auto parameter = arg_tail;
+
+                fmt::print(stderr, "parameter: {}\n", parameter);
+                const auto abbreviation = get_abbreviation_of_name(parameter);
+                if (not abbreviation) {
+                    m_parse_result = Result::UnknownOption{ std::string{ parameter } };
+                    return false;
+                }
+
+                if (is_flag(*abbreviation)) {
+                    fmt::print(stderr, "parameter is flag\n");
+                    const auto index = index_of(*abbreviation);
+                    set_flag(index);
+                } else {
+                    fmt::print(stderr, "parameter is not a flag\n");
+                    data.next_arg();
+                    if (data.eof()) {
+                        m_parse_result = Result::MissingArgument{};
+                        return false;
+                    }
+                    const auto argument = data.arg_tail();
+                    const auto index = index_of(*abbreviation);
+                    store_at(index, argument);
+                }
+                data.next_arg();
+            }
+            state = ParserState::None;
+            return true;
+        }
+
 
     private:
-        std::array<std::string_view, sizeof...(Arguments)> m_raw_values;
-        // std::array<bool, sizeof...(Arguments)> m_argument_found;
+        std::array<bool, sizeof...(Arguments)> m_arguments_found{};
         AnyVector m_values;
         ParseResult m_parse_result = Result::NothingParsedYet{};
 
@@ -580,19 +717,20 @@ namespace Arguably {
         }
 
         template<char Abbreviation, String Name, String Description, typename Type>
-        [[nodiscard]] auto parameter(Type&& default_value) {
-            check_duplicate<Arguments..., Parameter<Abbreviation, Name, Description, Type>>();
+        [[nodiscard]] auto named(Type&& default_value) {
+            check_duplicate<Arguments..., NamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
-            return ParserBuilder<HelpText, Arguments..., Parameter<Abbreviation, Name, Description, Type>>{
+            return ParserBuilder<HelpText, Arguments..., NamedParameter<Abbreviation, Name, Description, Type>>{
                 std::move(m_default_values)
             };
         }
 
         template<char Abbreviation, String Name, String Description, typename Type>
-        [[nodiscard]] auto argument(Type&& default_value) {
-            check_duplicate<Arguments..., Argument<Abbreviation, Name, Description, Type>>();
+        [[nodiscard]] auto optionally_named(Type&& default_value) {
+            check_duplicate<Arguments..., OptionallyNamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
-            return ParserBuilder<HelpText, Arguments..., Argument<Abbreviation, Name, Description, Type>>{
+            return ParserBuilder<
+                    HelpText, Arguments..., OptionallyNamedParameter<Abbreviation, Name, Description, Type>>{
                 std::move(m_default_values)
             };
         }
@@ -603,7 +741,6 @@ namespace Arguably {
         }
 
         [[nodiscard]] Parser<HelpText, Arguments...> create() {
-            fmt::print("creating parser with {} default values...\n", m_default_values.size());
             return Parser<HelpText, Arguments...>{ std::move(m_default_values) };
         }
 
