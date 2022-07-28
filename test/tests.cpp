@@ -187,3 +187,211 @@ TEST(Parser, OptionallyNamed_MixedUsingNameAndNotUsingName) {
     EXPECT_EQ(parser.get<'t'>(), "third_arg");
     EXPECT_TRUE(parser.get<'o'>());
 }
+
+TEST(Parser, SingleNamedParameter_UsingSpace) {
+    auto parser = Arguably::create_parser().named<'i', "input", "specify input file", std::string>("-").create();
+
+    const char* argv[] = { "backseat.exe", "--input", "my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+TEST(Parser, OnlyUnnamedParametersAfterFreeStandingDoubleDash) {
+    auto parser = Arguably::create_parser()
+                          .flag<'i', "some_flag", "">()
+                          .optionally_named<'a', "arg", "", std::string>("-")
+                          .create();
+    const char* argv[] = { "rm", "--", "-irgendeinidiothateinendateinamenmiteinembindestrichangelegt", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_FALSE(parser.get<'i'>());
+    EXPECT_EQ(parser.get<'a'>(), "-irgendeinidiothateinendateinamenmiteinembindestrichangelegt");
+}
+
+TEST(Parser, SingleDashAsUnnamedArgument) {
+    auto parser = Arguably::create_parser()
+                          .flag<'i', "some_flag", "">()
+                          .optionally_named<'a', "arg", "", std::string>("some_default")
+                          .create();
+
+    const char* argv[] = { "rm", "-", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_FALSE(parser.get<'i'>());
+    EXPECT_EQ(parser.get<'a'>(), "-");
+}
+
+TEST(Parser, NamedArgument_NoSpace) {
+    auto parser = Arguably::create_parser()
+                          .named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "-imy_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+TEST(Parser, NamedArgument_WithSpace) {
+    auto parser = Arguably::create_parser()
+                          .named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "-i", "my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+TEST(Parser, NamedArgument_WithName_WithEquals) {
+    auto parser = Arguably::create_parser()
+                          .named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--input=my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+TEST(Parser, OptionallyNamedArgumentWithFollowingFlag) {
+    auto parser = Arguably::create_parser()
+                          .flag<'S', "HugeS", "">()
+                          .optionally_named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "my_code.bs", "-S", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_TRUE(parser.get<'S'>());
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+// backseat.exe -- my_code.bs
+TEST(Parser, OptionallyNamedArgumentAfterFreestandingDoubleDash) {
+    auto parser = Arguably::create_parser()
+                          .flag<'S', "HugeS", "">()
+                          .flag<'m', "mothership", "">()
+                          .optionally_named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--" ,"my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_FALSE(parser.get<'S'>());
+    EXPECT_FALSE(parser.get<'m'>());
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+// backseat.exe -Si my_code.bs
+TEST(Parser, FlagWithFollowingOptionallyNamedParameter) {
+    auto parser = Arguably::create_parser()
+                          .flag<'S', "HugeS", "">()
+                          .flag<'m', "mothership", "">()
+                          .optionally_named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "-Si", "my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_TRUE(parser.get<'S'>());
+    EXPECT_FALSE(parser.get<'m'>());
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+// backseat.exe -Simy_code.bs
+TEST(Parser, FlagWithFollowingOptionallyNamedParameter_NoSpace) {
+    auto parser = Arguably::create_parser()
+                          .flag<'S', "HugeS", "">()
+                          .flag<'m', "mothership", "">()
+                          .optionally_named<'i', "input", "", std::string>("-")
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "-Simy_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_TRUE(parser.get<'S'>());
+    EXPECT_FALSE(parser.get<'m'>());
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+// backseat.exe -akjfi filename.bs
+TEST(Parser, MultipleFlagsWithFollowingOptionallyNamedParameter_WithSpace) {
+    auto parser = Arguably::create_parser()
+                          .flag<'S', "HugeS", "">()
+                          .flag<'m', "mothership", "">()
+                          .optionally_named<'i', "input", "", std::string>("-")
+                          .flag<'a', "a_arg", "">()
+                          .flag<'k', "k_arg", "">()
+                          .flag<'j', "j_arg", "">()
+                          .flag<'f', "f_arg", "">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "-akjfi", "my_code.bs", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    ASSERT_TRUE(parser);
+    EXPECT_FALSE(parser.get<'S'>());
+    EXPECT_FALSE(parser.get<'m'>());
+    EXPECT_TRUE(parser.get<'a'>());
+    EXPECT_TRUE(parser.get<'k'>());
+    EXPECT_TRUE(parser.get<'j'>());
+    EXPECT_TRUE(parser.get<'f'>());
+    EXPECT_EQ(parser.get<'i'>(), "my_code.bs");
+}
+
+TEST(Parser, PrintHelp) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_arg", "This is the description of a">()
+                          .help<"This is the best program ever!">()
+                          .create();
+    std::stringstream stream;
+    parser.print_help(stream);
+    parser.print_help(stderr);
+    EXPECT_EQ(stream.str(), "This is the best program ever!\n"
+              "-a, --a_arg  This is the description of a\n");
+}

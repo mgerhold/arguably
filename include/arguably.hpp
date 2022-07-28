@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fmt/core.h>
+#include <fmt/ostream.h>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -400,12 +401,12 @@ namespace Arguably {
         }
 
         template<typename First, typename... Rest>
-        constexpr void print_help(std::FILE* file, usize max_name_width) const {
+        constexpr void print_help(auto&& stream, usize max_name_width) const {
             fmt::print(
-                    file, "-{}, --{:{}}  {}\n", First::abbreviation, First::name, max_name_width, First::description
+                    stream, "-{}, --{:{}}  {}\n", First::abbreviation, First::name, max_name_width, First::description
             );
             if constexpr (sizeof...(Rest) > 0) {
-                print_help<Rest...>(file, max_name_width);
+                print_help<Rest...>(stream, max_name_width);
             }
         }
 
@@ -472,12 +473,12 @@ namespace Arguably {
             return get_name<Abbreviation, Arguments...>();
         }
 
-        void print_help(std::FILE* file = stdout) const {
+        void print_help(auto&& out) const {
             const auto help_text = static_cast<std::string_view>(HelpText);
             if (not help_text.empty()) {
-                fmt::print(file, "{}\n", help_text);
+                fmt::print(std::forward<decltype(out)>(out), "{}\n", help_text);
             }
-            print_help<Arguments...>(file, max_name_length<Arguments...>());
+            print_help<Arguments...>(std::forward<decltype(out)>(out), max_name_length<Arguments...>());
         }
 
         template<char Abbreviation>
@@ -508,6 +509,7 @@ namespace Arguably {
         enum class ParserState {
             SingleDashArguments,
             DoubleDashArgument,
+            AfterFreestandingDoubleDash,
             None,
         };
 
@@ -535,12 +537,26 @@ namespace Arguably {
                 switch (state) {
                     case ParserState::None:
                         if (data.current() == '-') {
-                            if (data.peek() == '-') {
+                            const auto next = data.peek();
+                            if (next == '-') {
                                 state = ParserState::DoubleDashArgument;
-                                data.advance();
+                                data.advance();// consume first dash
                                 if (isspace(data.peek())) {
+                                    state = ParserState::AfterFreestandingDoubleDash;
+                                    data.advance();// consume second dash
+                                    data.advance();// consume space
+                                    break;
+                                }
+                            } else if (isspace(next)) {
+                                const auto abbreviation =
+                                        abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found
+                                        );
+                                if (not abbreviation.has_value()) {
+                                    m_parse_result = Result::ExcessUnnamedArguments{};
                                     return;
                                 }
+                                const auto index = index_of(*abbreviation);
+                                store_at(index, "-");
                             } else {
                                 state = ParserState::SingleDashArguments;
                             }
@@ -561,6 +577,11 @@ namespace Arguably {
                     }
                     case ParserState::DoubleDashArgument:
                         if (not handle_double_dash_argument(data, state)) {
+                            return;
+                        }
+                        break;
+                    case ParserState::AfterFreestandingDoubleDash:
+                        if (not handle_unnamed_argument(data)) {
                             return;
                         }
                         break;
@@ -685,7 +706,6 @@ namespace Arguably {
             state = ParserState::None;
             return true;
         }
-
 
     private:
         std::array<bool, sizeof...(Arguments)> m_arguments_found{};
