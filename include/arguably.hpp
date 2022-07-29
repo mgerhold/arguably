@@ -19,7 +19,7 @@
 #include <variant>
 #include <vector>
 
-namespace Arguably {
+namespace arguably {
     namespace Result {
         struct MissingArgument {
             char abbreviation;
@@ -772,4 +772,4 @@ namespace Arguably {
         return ParserBuilder<"">{};
     }
 
-}// namespace Arguably
+}// namespace arguably
