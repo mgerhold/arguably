@@ -242,10 +242,6 @@ namespace arguably {
 
     template<usize Offset, typename Argument, typename... Rest>
     void print_default_values_impl(const AnyVector& default_values) {
-        fmt::print(
-                "default value of {} is: {}\n", Argument::name,
-                std::any_cast<typename Argument::ValueType>(default_values[Offset])
-        );
         if constexpr (sizeof...(Rest) > 0) {
             print_default_values_impl<Offset + 1, Rest...>(default_values);
         }
@@ -592,7 +588,6 @@ namespace arguably {
         /// returns false on error
         [[nodiscard]] bool handle_unnamed_argument(ArgumentsView& data) {
             const auto argument = data.arg_tail();
-            fmt::print(stderr, "found optionally named argument: {}\n", argument);
             const auto abbreviation = abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found);
             if (not abbreviation.has_value()) {
                 m_parse_result = Result::ExcessUnnamedArguments{};
@@ -612,12 +607,10 @@ namespace arguably {
                 return true;
             }
             if (is_flag(data.current())) {
-                fmt::print("{} is a flag!\n", data.current());
                 const auto index = index_of(data.current());
                 set_flag(index);
                 data.advance();
             } else if (is_named_parameter(data.current()) or is_optionally_named_parameter(data.current())) {
-                fmt::print("{} is a (optionally) parameter!\n", data.current());
                 const auto parameter_abbreviation = data.consume();
                 const auto tail = data.arg_tail();
                 const auto index = index_of(parameter_abbreviation);
@@ -647,11 +640,7 @@ namespace arguably {
             const auto equals_index = arg_tail.find('=');
             const auto equals_found = (equals_index != decltype(arg_tail)::npos);
 
-            fmt::print(stderr, "double dash argument\n");
-
             if (equals_found) {
-                fmt::print(stderr, "equals found\n");
-
                 const auto parameter = arg_tail.substr(0, equals_index);
                 const auto abbreviation = get_abbreviation_of_name(parameter);
                 if (not abbreviation) {
@@ -673,11 +662,7 @@ namespace arguably {
                 store_at(index, argument);
                 data.next_arg();
             } else {
-                fmt::print(stderr, "no equals found\n");
-
                 const auto parameter = arg_tail;
-
-                fmt::print(stderr, "parameter: {}\n", parameter);
                 const auto abbreviation = get_abbreviation_of_name(parameter);
                 if (not abbreviation) {
                     m_parse_result = Result::UnknownOption{ std::string{ parameter } };
@@ -685,11 +670,9 @@ namespace arguably {
                 }
 
                 if (is_flag(*abbreviation)) {
-                    fmt::print(stderr, "parameter is flag\n");
                     const auto index = index_of(*abbreviation);
                     set_flag(index);
                 } else {
-                    fmt::print(stderr, "parameter is not a flag\n");
                     data.next_arg();
                     if (data.eof()) {
                         m_parse_result = Result::MissingArgument{};
