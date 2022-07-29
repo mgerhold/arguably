@@ -307,9 +307,7 @@ namespace Arguably {
         }
 
         [[nodiscard]] char peek() const {
-            if (eof()) {
-                return '\0';
-            }
+            assert(not eof());
             const auto [new_argument_index, new_char_offset] = *next_position();
             const auto next_char = argv[new_argument_index][new_char_offset];
             return next_char == '\0' ? ' ' : next_char;
@@ -525,7 +523,7 @@ namespace Arguably {
         }
 
         void parse(const char** argv) {
-            if (not std::holds_alternative<Result::NothingParsedYet>(m_parse_result)) {
+            if (not result_is<Result::NothingParsedYet>()) {
                 m_parse_result = Result::CannotParseAgain{};
                 return;
             }

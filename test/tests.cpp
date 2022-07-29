@@ -235,9 +235,7 @@ TEST(Parser, SingleDashAsUnnamedArgument) {
 }
 
 TEST(Parser, NamedArgument_NoSpace) {
-    auto parser = Arguably::create_parser()
-                          .named<'i', "input", "", std::string>("-")
-                          .create();
+    auto parser = Arguably::create_parser().named<'i', "input", "", std::string>("-").create();
 
     const char* argv[] = { "backseat.exe", "-imy_code.bs", nullptr };
 
@@ -250,9 +248,7 @@ TEST(Parser, NamedArgument_NoSpace) {
 }
 
 TEST(Parser, NamedArgument_WithSpace) {
-    auto parser = Arguably::create_parser()
-                          .named<'i', "input", "", std::string>("-")
-                          .create();
+    auto parser = Arguably::create_parser().named<'i', "input", "", std::string>("-").create();
 
     const char* argv[] = { "backseat.exe", "-i", "my_code.bs", nullptr };
 
@@ -265,9 +261,7 @@ TEST(Parser, NamedArgument_WithSpace) {
 }
 
 TEST(Parser, NamedArgument_WithName_WithEquals) {
-    auto parser = Arguably::create_parser()
-                          .named<'i', "input", "", std::string>("-")
-                          .create();
+    auto parser = Arguably::create_parser().named<'i', "input", "", std::string>("-").create();
 
     const char* argv[] = { "backseat.exe", "--input=my_code.bs", nullptr };
 
@@ -304,7 +298,7 @@ TEST(Parser, OptionallyNamedArgumentAfterFreestandingDoubleDash) {
                           .optionally_named<'i', "input", "", std::string>("-")
                           .create();
 
-    const char* argv[] = { "backseat.exe", "--" ,"my_code.bs", nullptr };
+    const char* argv[] = { "backseat.exe", "--", "my_code.bs", nullptr };
 
     EXPECT_FALSE(parser);
 
@@ -392,6 +386,205 @@ TEST(Parser, PrintHelp) {
     std::stringstream stream;
     parser.print_help(stream);
     parser.print_help(stderr);
-    EXPECT_EQ(stream.str(), "This is the best program ever!\n"
-              "-a, --a_arg  This is the description of a\n");
+    EXPECT_EQ(
+            stream.str(),
+            "This is the best program ever!\n"
+            "-a, --a_arg  This is the description of a\n"
+    );
+}
+
+TEST(Parser, UseOfUnknownDoubleDashArgumentWithEquals) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_arg", "This is the description of a">()
+                          .help<"This is the best program ever!">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--Pedder__=something", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::UnknownOption>());
+}
+
+TEST(Parser, DoubleDashArgumentWithEqualsIsFlag) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .help<"This is the best program ever!">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--a_flag=bla", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::CannotSetValueOfFlag>());
+}
+
+TEST(Parser, DoubleDashArgumentWithEmptyValue) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--name=", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::MissingArgument>());
+}
+
+TEST(Parser, UseOfUnknownDoubleDashArgumentWithoutEquals) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_arg", "This is the description of a">()
+                          .help<"This is the best program ever!">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--Pedder__", "something", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::UnknownOption>());
+}
+
+TEST(Parser, UseOfDoubleDashArgumentWithoutEqualsWithMissingValue) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+
+    const char* argv[] = { "backseat.exe", "--name", nullptr };
+
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::MissingArgument>());
+}
+
+TEST(Parser, OnlySingleDashAsArgument) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .optionally_named<'o', "optionally", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "-", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'o'>(), "-");
+}
+
+TEST(Parser, OnlySingleDashAsArgument_ParserHasNoOptionallyNamedArguments) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "-", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::ExcessUnnamedArguments>());
+}
+
+TEST(Parser, OnlyDoubleDashAsArgument) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "--", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+}
+
+TEST(Parser, TwoDoubleDashesAsArguments_ParserHasNoOptionallyNamedArguments) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "--", "--", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::ExcessUnnamedArguments>());
+}
+
+TEST(Parser, TwoDoubleDashesAsArguments_ParserHasOneOptionallyNamedArgument) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .optionally_named<'o', "optionally", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "--", "--", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'o'>(), "--");
+}
+
+TEST(Parser, TryingToParseTwice) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .optionally_named<'o', "optionally", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "--", "--", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'o'>(), "--");
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<Arguably::Result::CannotParseAgain>());
+}
+
+TEST(Parser, MissingValueAfterSingleDashNamedArgumentAbbreviation) {
+    auto parser = Arguably::create_parser()
+                          .flag<'a', "a_flag", "This is the description of a">()
+                          .named<'n', "name", "", std::string>("-")
+                          .optionally_named<'o', "optionally", "", std::string>("-")
+                          .help<"This is the best program ever!">()
+                          .create();
+    const char* argv[] = { "backseat.exe", "-an", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+
+    EXPECT_TRUE(parser.result_is<Arguably::Result::MissingArgument>());
 }
