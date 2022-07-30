@@ -2,7 +2,7 @@
 // Created by coder2k on 25.07.2022.
 //
 
-#include "arguably.hpp"
+#include <arguably.hpp>
 #include <gtest/gtest.h>
 #include <string>
 
