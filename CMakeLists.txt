@@ -41,7 +41,7 @@ set(TARGET_LIST Arguably fmt gtest gtest_main)
 
 add_library(Arguably INTERFACE)
 target_sources(Arguably INTERFACE include/arguably.hpp)
-target_include_directories(Arguably INTERFACE ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(Arguably INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}> $<INSTALL_INTERFACE:include>)
 
 target_link_libraries(Arguably INTERFACE fmt)
 
