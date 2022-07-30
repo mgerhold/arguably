@@ -1,8 +1,8 @@
-![Unit Tests](https://github.com/mgerhold/arguably/actions/workflows/cmake.yml/badge.svg)
+[![Unit Tests](https://github.com/mgerhold/arguably/actions/workflows/cmake.yml/badge.svg)](https://github.com/mgerhold/arguably/actions/workflows/cmake.yml)
 [![codecov](https://codecov.io/gh/mgerhold/arguably/branch/main/graph/badge.svg?token=2ARN577L42)](https://codecov.io/gh/mgerhold/arguably)
-![Licence: MIT](https://img.shields.io/github/license/mgerhold/arguably)
-![Discord Channel](https://img.shields.io/discord/834834066008309800?style=social)
-![Twitch live status](https://img.shields.io/twitch/status/coder2k?style=social)
+[![Licence: MIT](https://img.shields.io/github/license/mgerhold/arguably)](https://github.com/mgerhold/arguably/blob/main/LICENSE)
+[![Discord Channel](https://img.shields.io/discord/834834066008309800?style=social)](https://discord.gg/WygnW2wZj3)
+[![Twitch live status](https://img.shields.io/twitch/status/coder2k?style=social)](https://twitch.tv/coder2k)
 
 # Arguably
 A simple-to-use command line argument parser written in modern C++.
