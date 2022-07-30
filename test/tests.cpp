@@ -78,7 +78,7 @@ TEST(Parser, UnknownOption) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::UnknownOption>());
+    EXPECT_TRUE(parser.result_is<arguably::result::UnknownOption>());
 }
 
 TEST(Parser, NamedWithoutSpace) {
@@ -165,7 +165,7 @@ TEST(Parser, OptionallyNamed_NotUsingName_FailOnTooManyArguments) {
     parser.parse(argv);
 
     ASSERT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::ExcessUnnamedArguments>());
+    EXPECT_TRUE(parser.result_is<arguably::result::ExcessUnnamedArguments>());
 }
 
 TEST(Parser, OptionallyNamed_MixedUsingNameAndNotUsingName) {
@@ -405,7 +405,7 @@ TEST(Parser, UseOfUnknownDoubleDashArgumentWithEquals) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::UnknownOption>());
+    EXPECT_TRUE(parser.result_is<arguably::result::UnknownOption>());
 }
 
 TEST(Parser, DoubleDashArgumentWithEqualsIsFlag) {
@@ -421,7 +421,7 @@ TEST(Parser, DoubleDashArgumentWithEqualsIsFlag) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::CannotSetValueOfFlag>());
+    EXPECT_TRUE(parser.result_is<arguably::result::CannotSetValueOfFlag>());
 }
 
 TEST(Parser, DoubleDashArgumentWithEmptyValue) {
@@ -438,7 +438,7 @@ TEST(Parser, DoubleDashArgumentWithEmptyValue) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::MissingArgument>());
+    EXPECT_TRUE(parser.result_is<arguably::result::MissingArgument>());
 }
 
 TEST(Parser, UseOfUnknownDoubleDashArgumentWithoutEquals) {
@@ -454,7 +454,7 @@ TEST(Parser, UseOfUnknownDoubleDashArgumentWithoutEquals) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::UnknownOption>());
+    EXPECT_TRUE(parser.result_is<arguably::result::UnknownOption>());
 }
 
 TEST(Parser, UseOfDoubleDashArgumentWithoutEqualsWithMissingValue) {
@@ -471,7 +471,7 @@ TEST(Parser, UseOfDoubleDashArgumentWithoutEqualsWithMissingValue) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::MissingArgument>());
+    EXPECT_TRUE(parser.result_is<arguably::result::MissingArgument>());
 }
 
 TEST(Parser, OnlySingleDashAsArgument) {
@@ -502,7 +502,7 @@ TEST(Parser, OnlySingleDashAsArgument_ParserHasNoOptionallyNamedArguments) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::ExcessUnnamedArguments>());
+    EXPECT_TRUE(parser.result_is<arguably::result::ExcessUnnamedArguments>());
 }
 
 TEST(Parser, OnlyDoubleDashAsArgument) {
@@ -531,7 +531,7 @@ TEST(Parser, TwoDoubleDashesAsArguments_ParserHasNoOptionallyNamedArguments) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::ExcessUnnamedArguments>());
+    EXPECT_TRUE(parser.result_is<arguably::result::ExcessUnnamedArguments>());
 }
 
 TEST(Parser, TwoDoubleDashesAsArguments_ParserHasOneOptionallyNamedArgument) {
@@ -568,7 +568,7 @@ TEST(Parser, TryingToParseTwice) {
     parser.parse(argv);
 
     EXPECT_FALSE(parser);
-    EXPECT_TRUE(parser.result_is<arguably::Result::CannotParseAgain>());
+    EXPECT_TRUE(parser.result_is<arguably::result::CannotParseAgain>());
 }
 
 TEST(Parser, MissingValueAfterSingleDashNamedArgumentAbbreviation) {
@@ -585,5 +585,31 @@ TEST(Parser, MissingValueAfterSingleDashNamedArgumentAbbreviation) {
 
     EXPECT_FALSE(parser);
 
-    EXPECT_TRUE(parser.result_is<arguably::Result::MissingArgument>());
+    EXPECT_TRUE(parser.result_is<arguably::result::MissingArgument>());
+}
+
+TEST(Parser, IntegerArgument) {
+    auto parser = arguably::create_parser()
+                          .named<'i', "integer", "this is the description", int>(42)
+                          .create();
+    const char* argv[] = { "backseat.exe", "-i43", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), 43);
+}
+
+TEST(Parser, IntegerArgument_InvalidArgument) {
+    auto parser = arguably::create_parser()
+                          .named<'i', "integer", "this is the description", int>(42)
+                          .create();
+    const char* argv[] = { "backseat.exe", "-iabc", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_FALSE(parser);
+    EXPECT_TRUE(parser.result_is<arguably::result::ArgumentTypeMismatch>());
 }

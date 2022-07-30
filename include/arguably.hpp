@@ -20,7 +20,7 @@
 #include <vector>
 
 namespace arguably {
-    namespace Result {
+    namespace result {
         struct MissingArgument {
             char abbreviation;
         };
@@ -35,16 +35,18 @@ namespace arguably {
         struct CannotSetValueOfFlag {
             std::string option;
         };
-    }// namespace Result
+        struct ArgumentTypeMismatch { };
+    }// namespace result
 
     using ParseResult = std::variant<
-            Result::Okay,
-            Result::NothingParsedYet,
-            Result::MissingArgument,
-            Result::UnknownOption,
-            Result::CannotParseAgain,
-            Result::ExcessUnnamedArguments,
-            Result::CannotSetValueOfFlag>;
+            result::Okay,
+            result::NothingParsedYet,
+            result::MissingArgument,
+            result::UnknownOption,
+            result::CannotParseAgain,
+            result::ExcessUnnamedArguments,
+            result::CannotSetValueOfFlag,
+            result::ArgumentTypeMismatch>;
 
 
     using usize = std::size_t;
@@ -248,38 +250,42 @@ namespace arguably {
     }
 
     template<usize Offset, typename Argument, typename... Rest>
-    auto get_default_value(const AnyVector& default_values, const char abbreviation) {
+    auto get_value(const AnyVector& values, const char abbreviation) {
         if (Argument::abbreviation == abbreviation) {
-            return std::any_cast<typename Argument::ValueType>(default_values[Offset]);
+            return std::any_cast<typename Argument::ValueType>(values[Offset]);
         }
         if constexpr (sizeof...(Rest) > 0) {
-            return get_default_value<Offset + 1, Rest...>(default_values, abbreviation);
+            return get_value<Offset + 1, Rest...>(values, abbreviation);
         } else {
             throw;
         }
     }
 
     template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
-    auto get_default_value([[maybe_unused]] const AnyVector& default_values) {
+    auto get_value([[maybe_unused]] const AnyVector& values) {
         if constexpr (Argument::abbreviation == Abbreviation) {
-            return std::any_cast<typename Argument::ValueType>(default_values[Offset]);
+            return std::any_cast<typename Argument::ValueType>(values[Offset]);
         } else if constexpr (sizeof...(Rest) > 0) {
-            return get_default_value<Abbreviation, Offset + 1, Rest...>(default_values);
+            return get_value<Abbreviation, Offset + 1, Rest...>(values);
         } else {
             throw;
         }
     }
 
     template<usize Offset, typename Argument, typename... Rest, typename Value>
-    void store_at_impl(AnyVector& values, const usize index, Value&& value) {
+    [[nodiscard]] bool store_at_impl(AnyVector& values, const usize index, Value&& value) {
         if (index == Offset) {
             std::stringstream stream;
             stream << std::forward<Value>(value);
             auto result = typename Argument::ValueType{};
             stream >> result;
+            if (stream.fail()) {
+                return false;
+            }
             values[index] = result;
+            return true;
         } else if constexpr (sizeof...(Rest) > 0) {
-            store_at_impl<Offset + 1, Rest...>(values, index, std::forward<Value>(value));
+            return store_at_impl<Offset + 1, Rest...>(values, index, std::forward<Value>(value));
         } else {
             throw;
         }
@@ -428,7 +434,7 @@ namespace arguably {
 
     public:
         operator bool() const {
-            return std::holds_alternative<Result::Okay>(m_parse_result);
+            return std::holds_alternative<result::Okay>(m_parse_result);
         }
 
         [[nodiscard]] ParseResult result() const {
@@ -491,7 +497,7 @@ namespace arguably {
         template<char Abbreviation>
         [[nodiscard]] auto get() const {
             static_assert(has_abbreviation<Abbreviation>(), "unknown abbreviation");
-            return get_default_value<Abbreviation, 0, Arguments...>(m_values);
+            return get_value<Abbreviation, 0, Arguments...>(m_values);
         }
 
         [[nodiscard]] static usize get_argc(const char** argv) {
@@ -508,9 +514,13 @@ namespace arguably {
         };
 
         template<typename T>
-        void store_at(usize index, T&& value) {
+        [[nodiscard]] bool try_store_at(usize index, T&& value) {
             m_arguments_found[index] = true;
-            store_at_impl<0, Arguments...>(m_values, index, std::forward<T>(value));
+            const auto success = store_at_impl<0, Arguments...>(m_values, index, std::forward<T>(value));
+            if (not success) {
+                m_parse_result = result::ArgumentTypeMismatch{};
+            }
+            return success;
         }
 
         void set_flag(usize index) {
@@ -519,8 +529,8 @@ namespace arguably {
         }
 
         void parse(const char** argv) {
-            if (not result_is<Result::NothingParsedYet>()) {
-                m_parse_result = Result::CannotParseAgain{};
+            if (not result_is<result::NothingParsedYet>()) {
+                m_parse_result = result::CannotParseAgain{};
                 return;
             }
 
@@ -546,11 +556,13 @@ namespace arguably {
                                         abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found
                                         );
                                 if (not abbreviation.has_value()) {
-                                    m_parse_result = Result::ExcessUnnamedArguments{};
+                                    m_parse_result = result::ExcessUnnamedArguments{};
                                     return;
                                 }
                                 const auto index = index_of(*abbreviation);
-                                store_at(index, "-");
+                                if (not try_store_at(index, "-")) {
+                                    return;
+                                }
                             } else {
                                 state = ParserState::SingleDashArguments;
                             }
@@ -581,7 +593,7 @@ namespace arguably {
                         break;
                 }
             }
-            m_parse_result = Result::Okay{};
+            m_parse_result = result::Okay{};
         }
 
     private:
@@ -590,11 +602,13 @@ namespace arguably {
             const auto argument = data.arg_tail();
             const auto abbreviation = abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found);
             if (not abbreviation.has_value()) {
-                m_parse_result = Result::ExcessUnnamedArguments{};
+                m_parse_result = result::ExcessUnnamedArguments{};
                 return false;
             }
             const auto index = index_of(*abbreviation);
-            store_at(index, argument);
+            if (not try_store_at(index, argument)) {
+                return false;
+            }
             data.next_arg();
             return true;
         }
@@ -617,18 +631,22 @@ namespace arguably {
                 if (tail.empty()) {
                     data.next_arg();
                     if (data.eof()) {
-                        m_parse_result = Result::MissingArgument{ .abbreviation{ parameter_abbreviation } };
+                        m_parse_result = result::MissingArgument{ .abbreviation{ parameter_abbreviation } };
                         return false;
                     }
                     const auto argument = data.arg_tail();
-                    store_at(index, argument);
+                    if (not try_store_at(index, argument)) {
+                        return false;
+                    }
                 } else {
-                    store_at(index, tail);
+                    if (not try_store_at(index, tail)) {
+                        return false;
+                    }
                 }
                 data.next_arg();
                 state = ParserState::None;
             } else {
-                m_parse_result = Result::UnknownOption{ .option{ data.current() } };
+                m_parse_result = result::UnknownOption{ .option{ data.current() } };
                 return false;
             }
             return true;
@@ -644,28 +662,30 @@ namespace arguably {
                 const auto parameter = arg_tail.substr(0, equals_index);
                 const auto abbreviation = get_abbreviation_of_name(parameter);
                 if (not abbreviation) {
-                    m_parse_result = Result::UnknownOption{ std::string{ parameter } };
+                    m_parse_result = result::UnknownOption{ std::string{ parameter } };
                     return false;
                 }
                 if (is_flag(*abbreviation)) {
-                    m_parse_result = Result::CannotSetValueOfFlag{ std::string{ parameter } };
+                    m_parse_result = result::CannotSetValueOfFlag{ std::string{ parameter } };
                     return false;
                 }
 
                 const auto argument = arg_tail.substr(equals_index + 1);
                 if (argument.empty()) {
-                    m_parse_result = Result::MissingArgument{};
+                    m_parse_result = result::MissingArgument{};
                     return false;
                 }
 
                 const auto index = index_of(*abbreviation);
-                store_at(index, argument);
+                if (not try_store_at(index, argument)) {
+                    return false;
+                }
                 data.next_arg();
             } else {
                 const auto parameter = arg_tail;
                 const auto abbreviation = get_abbreviation_of_name(parameter);
                 if (not abbreviation) {
-                    m_parse_result = Result::UnknownOption{ std::string{ parameter } };
+                    m_parse_result = result::UnknownOption{ std::string{ parameter } };
                     return false;
                 }
 
@@ -675,12 +695,14 @@ namespace arguably {
                 } else {
                     data.next_arg();
                     if (data.eof()) {
-                        m_parse_result = Result::MissingArgument{};
+                        m_parse_result = result::MissingArgument{};
                         return false;
                     }
                     const auto argument = data.arg_tail();
                     const auto index = index_of(*abbreviation);
-                    store_at(index, argument);
+                    if (not try_store_at(index, argument)) {
+                        return false;
+                    }
                 }
                 data.next_arg();
             }
@@ -691,7 +713,7 @@ namespace arguably {
     private:
         std::array<bool, sizeof...(Arguments)> m_arguments_found{};
         AnyVector m_values;
-        ParseResult m_parse_result = Result::NothingParsedYet{};
+        ParseResult m_parse_result = result::NothingParsedYet{};
 
         template<String, typename...>
         friend class ParserBuilder;
