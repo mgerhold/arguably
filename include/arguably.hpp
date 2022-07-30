@@ -38,360 +38,364 @@ namespace arguably {
         struct ArgumentTypeMismatch { };
     }// namespace result
 
-    using ParseResult = std::variant<
-            result::Okay,
-            result::NothingParsedYet,
-            result::MissingArgument,
-            result::UnknownOption,
-            result::CannotParseAgain,
-            result::ExcessUnnamedArguments,
-            result::CannotSetValueOfFlag,
-            result::ArgumentTypeMismatch>;
+    namespace detail {
 
+        using ParseResult = std::variant<
+                result::Okay,
+                result::NothingParsedYet,
+                result::MissingArgument,
+                result::UnknownOption,
+                result::CannotParseAgain,
+                result::ExcessUnnamedArguments,
+                result::CannotSetValueOfFlag,
+                result::ArgumentTypeMismatch>;
 
-    using usize = std::size_t;
-    using u8 = std::uint8_t;
+        using usize = std::size_t;
+        using u8 = std::uint8_t;
 
-    template<usize Length>
-    struct String {
-        constexpr String(const char (&value)[Length]) {
-            std::copy(std::begin(value), std::end(value), std::begin(this->value));
+        template<usize Length>
+        struct String final {
+            constexpr String(const char (&value)[Length]) {
+                std::copy(std::begin(value), std::end(value), std::begin(this->value));
+            }
+
+            explicit constexpr operator std::string_view() const {
+                return std::string_view{ std::begin(value), std::end(value) - 1 };
+            }
+
+            std::array<char, Length> value;
+        };
+
+        template<char Abbreviation, String Name, String Description>
+        struct Flag final {
+            using ValueType = bool;
+
+            constexpr static char abbreviation{ Abbreviation };
+            constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
+            constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
+        };
+
+        template<char Abbreviation, String Name, String Description, typename Type>
+        struct OptionallyNamedParameter final {
+            using ValueType = Type;
+
+            constexpr static char abbreviation{ Abbreviation };
+            constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
+            constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
+        };
+
+        template<char Abbreviation, String Name, String Description, typename Type>
+        struct NamedParameter final {
+            using ValueType = Type;
+
+            constexpr static char abbreviation{ Abbreviation };
+            constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
+            constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
+        };
+
+        template<typename Argument, typename... Rest>
+        constexpr void check_duplicate() {
+            using namespace std::string_view_literals;
+
+            static_assert(Argument::abbreviation != 'h', "h is a reserved argument abbreviation");
+            static_assert(Argument::name != "help"sv, R"("help" is a reserved argument name)");
+
+            if constexpr (sizeof...(Rest) != 0) {
+                static_assert(
+                        ((Argument::abbreviation != Rest::abbreviation) and ...),
+                        "duplicate argument abbreviations are not allowed"
+                );
+                static_assert(((Argument::name != Rest::name) and ...), "duplicate argument names are not allowed");
+                check_duplicate<Rest...>();
+            }
         }
 
-        explicit constexpr operator std::string_view() const {
-            return std::string_view{ std::begin(value), std::end(value) - 1 };
-        }
-
-        std::array<char, Length> value;
-    };
-
-    template<char Abbreviation, String Name, String Description>
-    struct Flag {
-        using ValueType = bool;
-
-        constexpr static char abbreviation{ Abbreviation };
-        constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
-        constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
-    };
-
-    template<char Abbreviation, String Name, String Description, typename Type>
-    struct OptionallyNamedParameter {
-        using ValueType = Type;
-
-        constexpr static char abbreviation{ Abbreviation };
-        constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
-        constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
-    };
-
-    template<char Abbreviation, String Name, String Description, typename Type>
-    struct NamedParameter {
-        using ValueType = Type;
-
-        constexpr static char abbreviation{ Abbreviation };
-        constexpr static std::string_view name{ static_cast<std::string_view>(Name) };
-        constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
-    };
-
-    template<typename Argument, typename... Rest>
-    constexpr void check_duplicate() {
-        using namespace std::string_view_literals;
-
-        static_assert(Argument::abbreviation != 'h', "h is a reserved argument abbreviation");
-        static_assert(Argument::name != "help"sv, R"("help" is a reserved argument name)");
-
-        if constexpr (sizeof...(Rest) != 0) {
-            static_assert(
-                    ((Argument::abbreviation != Rest::abbreviation) and ...),
-                    "duplicate argument abbreviations are not allowed"
-            );
-            static_assert(((Argument::name != Rest::name) and ...), "duplicate argument names are not allowed");
-            check_duplicate<Rest...>();
-        }
-    }
-
-    template<char Abbreviation, String Name, String Description>
-    [[nodiscard]] constexpr bool is_flag(Flag<Abbreviation, Name, Description>) {
-        return true;
-    }
-
-    template<typename T>
-    [[nodiscard]] constexpr bool is_flag(T) {
-        return false;
-    }
-
-    template<char Abbreviation, String Name, String Description, typename Type>
-    [[nodiscard]] constexpr bool is_named_parameter(NamedParameter<Abbreviation, Name, Description, Type>) {
-        return true;
-    }
-
-    template<typename T>
-    [[nodiscard]] constexpr bool is_named_parameter(T) {
-        return false;
-    }
-
-    template<char Abbreviation, String Name, String Description, typename Type>
-    [[nodiscard]] constexpr bool
-    is_optionally_named_parameter(OptionallyNamedParameter<Abbreviation, Name, Description, Type>) {
-        return true;
-    }
-
-    template<typename T>
-    [[nodiscard]] constexpr bool is_optionally_named_parameter(T) {
-        return false;
-    }
-
-    template<typename... Arguments>
-    consteval usize count_flags() {
-        if constexpr (sizeof...(Arguments) == 0) {
-            return 0;
-        } else {
-            return static_cast<usize>((is_flag(Arguments{}) + ...));
-        }
-    }
-
-    template<typename... Arguments>
-    consteval usize count_parameters() {
-        if constexpr (sizeof...(Arguments) == 0) {
-            return 0;
-        } else {
-            return static_cast<usize>((is_named_parameter(Arguments{}) + ...));
-        }
-    }
-
-    template<typename... Arguments>
-    consteval usize count_arguments() {
-        if constexpr (sizeof...(Arguments) == 0) {
-            return 0;
-        } else {
-            return static_cast<usize>((is_optionally_named_parameter(Arguments{}) + ...));
-        }
-    }
-
-    template<char Abbreviation, typename First, typename... Rest>
-    [[nodiscard]] consteval bool has_abbreviation_impl() {
-        if constexpr (First::abbreviation == Abbreviation) {
+        template<char Abbreviation, String Name, String Description>
+        [[nodiscard]] constexpr bool is_flag(Flag<Abbreviation, Name, Description>) {
             return true;
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return has_abbreviation_impl<Abbreviation, Rest...>();
-        } else {
+        }
+
+        template<typename T>
+        [[nodiscard]] constexpr bool is_flag(T) {
             return false;
         }
-    }
 
-    template<typename First, typename... Rest>
-    [[nodiscard]] constexpr std::optional<char> get_abbreviation_of_name_impl(const std::string_view name) {
-        if (First::name == name) {
-            return First::abbreviation;
+        template<char Abbreviation, String Name, String Description, typename Type>
+        [[nodiscard]] constexpr bool is_named_parameter(NamedParameter<Abbreviation, Name, Description, Type>) {
+            return true;
         }
-        if constexpr (sizeof...(Rest) > 0) {
-            return get_abbreviation_of_name_impl<Rest...>(name);
-        } else {
-            return {};
-        }
-    }
 
-    template<typename... Arguments>
-    [[nodiscard]] constexpr bool is_flag_impl([[maybe_unused]] const char abbreviation) {
-        if constexpr (sizeof...(Arguments) == 0) {
+        template<typename T>
+        [[nodiscard]] constexpr bool is_named_parameter(T) {
             return false;
-        } else {
-            return ((is_flag(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
         }
-    }
 
-    template<typename... Arguments>
-    [[nodiscard]] constexpr bool is_named_parameter_impl([[maybe_unused]] const char abbreviation) {
-        if constexpr (sizeof...(Arguments) == 0) {
+        template<char Abbreviation, String Name, String Description, typename Type>
+        [[nodiscard]] constexpr bool
+        is_optionally_named_parameter(OptionallyNamedParameter<Abbreviation, Name, Description, Type>) {
+            return true;
+        }
+
+        template<typename T>
+        [[nodiscard]] constexpr bool is_optionally_named_parameter(T) {
             return false;
-        } else {
-            return ((is_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
         }
-    }
 
-    template<typename... Arguments>
-    [[nodiscard]] constexpr bool is_optionally_named_parameter_impl([[maybe_unused]] const char abbreviation) {
-        if constexpr (sizeof...(Arguments) == 0) {
-            return false;
-        } else {
-            return ((is_optionally_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
+        template<typename... Arguments>
+        consteval usize count_flags() {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return 0;
+            } else {
+                return static_cast<usize>((is_flag(Arguments{}) + ...));
+            }
         }
-    }
 
-    template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
-    [[nodiscard]] consteval usize index_of_impl() {
-        static_assert(has_abbreviation_impl<Abbreviation, Argument, Rest...>(), "unknown abbreviation");
-        if constexpr (Argument::abbreviation == Abbreviation) {
-            return Offset;
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return index_of_impl<Abbreviation, Offset + 1, Rest...>();
-        } else {
-            throw;
+        template<typename... Arguments>
+        consteval usize count_parameters() {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return 0;
+            } else {
+                return static_cast<usize>((is_named_parameter(Arguments{}) + ...));
+            }
         }
-    }
 
-    template<usize Offset, typename Argument, typename... Rest>
-    [[nodiscard]] constexpr usize index_of_impl(const char abbreviation) {
-        if (Argument::abbreviation == abbreviation) {
-            return Offset;
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return index_of_impl<Offset + 1, Rest...>(abbreviation);
-        } else {
-            throw;
+        template<typename... Arguments>
+        consteval usize count_arguments() {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return 0;
+            } else {
+                return static_cast<usize>((is_optionally_named_parameter(Arguments{}) + ...));
+            }
         }
-    }
 
-    struct AnyVector : public std::vector<std::any> { };
-
-    template<usize Offset, typename Argument, typename... Rest>
-    void print_default_values_impl(const AnyVector& default_values) {
-        if constexpr (sizeof...(Rest) > 0) {
-            print_default_values_impl<Offset + 1, Rest...>(default_values);
-        }
-    }
-
-    template<usize Offset, typename Argument, typename... Rest>
-    auto get_value(const AnyVector& values, const char abbreviation) {
-        if (Argument::abbreviation == abbreviation) {
-            return std::any_cast<typename Argument::ValueType>(values[Offset]);
-        }
-        if constexpr (sizeof...(Rest) > 0) {
-            return get_value<Offset + 1, Rest...>(values, abbreviation);
-        } else {
-            throw;
-        }
-    }
-
-    template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
-    auto get_value([[maybe_unused]] const AnyVector& values) {
-        if constexpr (Argument::abbreviation == Abbreviation) {
-            return std::any_cast<typename Argument::ValueType>(values[Offset]);
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return get_value<Abbreviation, Offset + 1, Rest...>(values);
-        } else {
-            throw;
-        }
-    }
-
-    template<usize Offset, typename Argument, typename... Rest, typename Value>
-    [[nodiscard]] bool store_at_impl(AnyVector& values, const usize index, Value&& value) {
-        if (index == Offset) {
-            std::stringstream stream;
-            stream << std::forward<Value>(value);
-            auto result = typename Argument::ValueType{};
-            stream >> result;
-            if (stream.fail()) {
+        template<char Abbreviation, typename First, typename... Rest>
+        [[nodiscard]] consteval bool has_abbreviation_impl() {
+            if constexpr (First::abbreviation == Abbreviation) {
+                return true;
+            } else if constexpr (sizeof...(Rest) > 0) {
+                return has_abbreviation_impl<Abbreviation, Rest...>();
+            } else {
                 return false;
             }
-            values[index] = result;
-            return true;
-        } else if constexpr (sizeof...(Rest) > 0) {
-            return store_at_impl<Offset + 1, Rest...>(values, index, std::forward<Value>(value));
-        } else {
-            throw;
-        }
-    }
-
-    struct ArgumentsView {
-        usize argument_index{ 1 };
-        usize char_offset{ 0 };
-        usize argc;
-        const char** argv;
-
-        [[nodiscard]] char current() const {
-            const auto at_current = argv[argument_index][char_offset];
-            return at_current == '\0' ? ' ' : at_current;
         }
 
-        [[nodiscard]] char consume() {
-            const auto result = current();
-            advance();
-            return result;
-        }
-
-        [[nodiscard]] char peek() const {
-            assert(not eof());
-            const auto [new_argument_index, new_char_offset] = *next_position();
-            const auto next_char = argv[new_argument_index][new_char_offset];
-            return next_char == '\0' ? ' ' : next_char;
-        }
-
-        void next_arg() {
-            ++argument_index;
-            char_offset = 0;
-        }
-
-        [[nodiscard]] std::optional<std::pair<usize, usize>> next_position() const {
-            if (argument_index >= argc) {
+        template<typename First, typename... Rest>
+        [[nodiscard]] constexpr std::optional<char> get_abbreviation_of_name_impl(const std::string_view name) {
+            if (First::name == name) {
+                return First::abbreviation;
+            }
+            if constexpr (sizeof...(Rest) > 0) {
+                return get_abbreviation_of_name_impl<Rest...>(name);
+            } else {
                 return {};
             }
-            if (argv[argument_index][char_offset] == '\0') {
-                if (argument_index >= argc - 1) {
+        }
+
+        template<typename... Arguments>
+        [[nodiscard]] constexpr bool is_flag_impl([[maybe_unused]] const char abbreviation) {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return false;
+            } else {
+                return ((is_flag(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
+            }
+        }
+
+        template<typename... Arguments>
+        [[nodiscard]] constexpr bool is_named_parameter_impl([[maybe_unused]] const char abbreviation) {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return false;
+            } else {
+                return ((is_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...);
+            }
+        }
+
+        template<typename... Arguments>
+        [[nodiscard]] constexpr bool is_optionally_named_parameter_impl([[maybe_unused]] const char abbreviation) {
+            if constexpr (sizeof...(Arguments) == 0) {
+                return false;
+            } else {
+                return ((is_optionally_named_parameter(Arguments{}) and Arguments::abbreviation == abbreviation) or ...
+                );
+            }
+        }
+
+        template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
+        [[nodiscard]] consteval usize index_of_impl() {
+            static_assert(has_abbreviation_impl<Abbreviation, Argument, Rest...>(), "unknown abbreviation");
+            if constexpr (Argument::abbreviation == Abbreviation) {
+                return Offset;
+            } else if constexpr (sizeof...(Rest) > 0) {
+                return index_of_impl<Abbreviation, Offset + 1, Rest...>();
+            } else {
+                throw;
+            }
+        }
+
+        template<usize Offset, typename Argument, typename... Rest>
+        [[nodiscard]] constexpr usize index_of_impl(const char abbreviation) {
+            if (Argument::abbreviation == abbreviation) {
+                return Offset;
+            } else if constexpr (sizeof...(Rest) > 0) {
+                return index_of_impl<Offset + 1, Rest...>(abbreviation);
+            } else {
+                throw;
+            }
+        }
+
+        struct AnyVector : public std::vector<std::any> { };
+
+        template<usize Offset, typename Argument, typename... Rest>
+        void print_default_values_impl(const AnyVector& default_values) {
+            if constexpr (sizeof...(Rest) > 0) {
+                print_default_values_impl<Offset + 1, Rest...>(default_values);
+            }
+        }
+
+        template<usize Offset, typename Argument, typename... Rest>
+        auto get_value(const AnyVector& values, const char abbreviation) {
+            if (Argument::abbreviation == abbreviation) {
+                return std::any_cast<typename Argument::ValueType>(values[Offset]);
+            }
+            if constexpr (sizeof...(Rest) > 0) {
+                return get_value<Offset + 1, Rest...>(values, abbreviation);
+            } else {
+                throw;
+            }
+        }
+
+        template<char Abbreviation, usize Offset, typename Argument, typename... Rest>
+        auto get_value([[maybe_unused]] const AnyVector& values) {
+            if constexpr (Argument::abbreviation == Abbreviation) {
+                return std::any_cast<typename Argument::ValueType>(values[Offset]);
+            } else if constexpr (sizeof...(Rest) > 0) {
+                return get_value<Abbreviation, Offset + 1, Rest...>(values);
+            } else {
+                throw;
+            }
+        }
+
+        template<usize Offset, typename Argument, typename... Rest, typename Value>
+        [[nodiscard]] bool store_at_impl(AnyVector& values, const usize index, Value&& value) {
+            if (index == Offset) {
+                std::stringstream stream;
+                stream << std::forward<Value>(value);
+                auto result = typename Argument::ValueType{};
+                stream >> result;
+                if (stream.fail()) {
+                    return false;
+                }
+                values[index] = result;
+                return true;
+            } else if constexpr (sizeof...(Rest) > 0) {
+                return store_at_impl<Offset + 1, Rest...>(values, index, std::forward<Value>(value));
+            } else {
+                throw;
+            }
+        }
+
+        struct ArgumentsView {
+            usize argument_index{ 1 };
+            usize char_offset{ 0 };
+            usize argc;
+            const char** argv;
+
+            [[nodiscard]] char current() const {
+                const auto at_current = argv[argument_index][char_offset];
+                return at_current == '\0' ? ' ' : at_current;
+            }
+
+            [[nodiscard]] char consume() {
+                const auto result = current();
+                advance();
+                return result;
+            }
+
+            [[nodiscard]] char peek() const {
+                assert(not eof());
+                const auto [new_argument_index, new_char_offset] = *next_position();
+                const auto next_char = argv[new_argument_index][new_char_offset];
+                return next_char == '\0' ? ' ' : next_char;
+            }
+
+            void next_arg() {
+                ++argument_index;
+                char_offset = 0;
+            }
+
+            [[nodiscard]] std::optional<std::pair<usize, usize>> next_position() const {
+                if (argument_index >= argc) {
                     return {};
                 }
+                if (argv[argument_index][char_offset] == '\0') {
+                    if (argument_index >= argc - 1) {
+                        return {};
+                    }
+                    return {
+                        std::pair{argument_index + 1, 0}
+                    };
+                }
                 return {
-                    std::pair{argument_index + 1, 0}
+                    std::pair{argument_index, char_offset + 1}
                 };
             }
-            return {
-                std::pair{argument_index, char_offset + 1}
-            };
-        }
 
-        void advance() {
-            if (eof()) {
-                return;
+            void advance() {
+                if (eof()) {
+                    return;
+                }
+
+                const auto [new_argument_index, new_char_offset] = *next_position();
+                argument_index = new_argument_index;
+                char_offset = new_char_offset;
             }
 
-            const auto [new_argument_index, new_char_offset] = *next_position();
-            argument_index = new_argument_index;
-            char_offset = new_char_offset;
+            [[nodiscard]] std::string_view arg_tail() const {
+                return std::string_view{ argv[argument_index] }.substr(char_offset);
+            }
+
+            [[nodiscard]] std::string_view consume_arg() {
+                const auto result = arg_tail();
+                ++argument_index;
+                char_offset = 0;
+                return result;
+            }
+
+            [[nodiscard]] bool eof() const {
+                return not next_position().has_value();
+            }
+        };
+
+        template<usize Offset, typename First, typename... Rest, usize NumArgs>
+        [[nodiscard]] std::optional<char> abbreviation_of_first_unseen_optionally_named(
+                const std::array<bool, NumArgs>& found_args
+        ) {
+            if (not found_args[Offset] and is_optionally_named_parameter(First{})) {
+                return First::abbreviation;
+            }
+            if constexpr (sizeof...(Rest) > 0) {
+                return abbreviation_of_first_unseen_optionally_named<Offset + 1, Rest...>(found_args);
+            } else {
+                return {};
+            }
         }
 
-        [[nodiscard]] std::string_view arg_tail() const {
-            return std::string_view{ argv[argument_index] }.substr(char_offset);
-        }
+    }// namespace detail
 
-        [[nodiscard]] std::string_view consume_arg() {
-            const auto result = arg_tail();
-            ++argument_index;
-            char_offset = 0;
-            return result;
-        }
-
-        [[nodiscard]] bool eof() const {
-            return not next_position().has_value();
-        }
-    };
-
-    template<usize Offset, typename First, typename... Rest, usize NumArgs>
-    [[nodiscard]] std::optional<char> abbreviation_of_first_unseen_optionally_named(
-            const std::array<bool, NumArgs>& found_args
-    ) {
-        if (not found_args[Offset] and is_optionally_named_parameter(First{})) {
-            return First::abbreviation;
-        }
-        if constexpr (sizeof...(Rest) > 0) {
-            return abbreviation_of_first_unseen_optionally_named<Offset + 1, Rest...>(found_args);
-        } else {
-            return {};
-        }
-    }
-
-    template<String HelpText, typename... Arguments>
+    template<detail::String HelpText, typename... Arguments>
     class Parser final {
     private:
         using ArgumentsMap = std::unordered_map<char, std::string>;
 
     private:
-        constexpr explicit Parser(AnyVector&& default_values) : m_values{ std::move(default_values) } { }
+        constexpr explicit Parser(detail::AnyVector&& default_values) : m_values{ std::move(default_values) } { }
 
         template<typename First, typename... Rest>
-        [[nodiscard]] constexpr static usize max_name_length() {
-            constexpr usize first_length = First::name.length();
+        [[nodiscard]] constexpr static detail::usize max_name_length() {
+            constexpr detail::usize first_length = First::name.length();
             if constexpr (sizeof...(Rest) == 0) {
                 return first_length;
             } else {
-                constexpr usize max_rest_length = max_name_length<Rest...>();
+                constexpr detail::usize max_rest_length = max_name_length<Rest...>();
                 if constexpr (first_length > max_rest_length) {
                     return first_length;
                 } else {
@@ -401,7 +405,7 @@ namespace arguably {
         }
 
         template<typename First, typename... Rest>
-        constexpr void print_help(auto&& stream, usize max_name_width) const {
+        constexpr void print_help(auto&& stream, detail::usize max_name_width) const {
             fmt::print(
                     stream, "-{}, --{:{}}  {}\n", First::abbreviation, First::name, max_name_width, First::description
             );
@@ -437,7 +441,7 @@ namespace arguably {
             return std::holds_alternative<result::Okay>(m_parse_result);
         }
 
-        [[nodiscard]] ParseResult result() const {
+        [[nodiscard]] detail::ParseResult result() const {
             return m_parse_result;
         }
 
@@ -448,23 +452,23 @@ namespace arguably {
 
         template<char Abbreviation>
         [[nodiscard]] static consteval bool has_abbreviation() {
-            return has_abbreviation_impl<Abbreviation, Arguments...>();
+            return detail::has_abbreviation_impl<Abbreviation, Arguments...>();
         }
 
         [[nodiscard]] std::optional<char> get_abbreviation_of_name(const std::string_view name) {
-            return get_abbreviation_of_name_impl<Arguments...>(name);
+            return detail::get_abbreviation_of_name_impl<Arguments...>(name);
         }
 
         [[nodiscard]] static constexpr bool is_flag(const char abbreviation) {
-            return is_flag_impl<Arguments...>(abbreviation);
+            return detail::is_flag_impl<Arguments...>(abbreviation);
         }
 
         [[nodiscard]] static constexpr bool is_named_parameter(const char abbreviation) {
-            return is_named_parameter_impl<Arguments...>(abbreviation);
+            return detail::is_named_parameter_impl<Arguments...>(abbreviation);
         }
 
         [[nodiscard]] static constexpr bool is_optionally_named_parameter(const char abbreviation) {
-            return is_optionally_named_parameter_impl<Arguments...>(abbreviation);
+            return detail::is_optionally_named_parameter_impl<Arguments...>(abbreviation);
         }
 
         template<char Abbreviation>
@@ -482,12 +486,12 @@ namespace arguably {
         }
 
         template<char Abbreviation>
-        [[nodiscard]] static consteval usize index_of() {
-            return index_of_impl<Abbreviation, 0, Arguments...>();
+        [[nodiscard]] static consteval detail::usize index_of() {
+            return detail::index_of_impl<Abbreviation, 0, Arguments...>();
         }
 
-        [[nodiscard]] static constexpr usize index_of(const char abbreviation) {
-            return index_of_impl<0, Arguments...>(abbreviation);
+        [[nodiscard]] static constexpr detail::usize index_of(const char abbreviation) {
+            return detail::index_of_impl<0, Arguments...>(abbreviation);
         }
 
         void print_default_values() const {
@@ -507,8 +511,8 @@ namespace arguably {
             return get_value<Abbreviation, 0, Arguments...>(m_values);
         }
 
-        [[nodiscard]] static usize get_argc(const char** argv) {
-            usize i;
+        [[nodiscard]] static detail::usize get_argc(const char** argv) {
+            detail::usize i;
             for (i = 1; argv[i] != nullptr; ++i) { }
             return i;
         }
@@ -521,7 +525,7 @@ namespace arguably {
         };
 
         template<typename T>
-        [[nodiscard]] bool try_store_at(usize index, T&& value) {
+        [[nodiscard]] bool try_store_at(detail::usize index, T&& value) {
             m_arguments_found[index] = true;
             const auto success = store_at_impl<0, Arguments...>(m_values, index, std::forward<T>(value));
             if (not success) {
@@ -530,7 +534,7 @@ namespace arguably {
             return success;
         }
 
-        void set_flag(usize index) {
+        void set_flag(detail::usize index) {
             m_arguments_found[index] = true;
             m_values[index] = true;
         }
@@ -541,7 +545,7 @@ namespace arguably {
                 return;
             }
 
-            auto data = ArgumentsView{ .argc{ get_argc(argv) }, .argv{ argv } };
+            auto data = detail::ArgumentsView{ .argc{ get_argc(argv) }, .argv{ argv } };
             auto state = ParserState::None;
 
             while (not data.eof()) {
@@ -560,7 +564,8 @@ namespace arguably {
                                 }
                             } else if (isspace(next)) {
                                 const auto abbreviation =
-                                        abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found
+                                        detail::abbreviation_of_first_unseen_optionally_named<0, Arguments...>(
+                                                m_arguments_found
                                         );
                                 if (not abbreviation.has_value()) {
                                     m_parse_result = result::ExcessUnnamedArguments{};
@@ -605,9 +610,10 @@ namespace arguably {
 
     private:
         /// returns false on error
-        [[nodiscard]] bool handle_unnamed_argument(ArgumentsView& data) {
+        [[nodiscard]] bool handle_unnamed_argument(detail::ArgumentsView& data) {
             const auto argument = data.arg_tail();
-            const auto abbreviation = abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found);
+            const auto abbreviation =
+                    detail::abbreviation_of_first_unseen_optionally_named<0, Arguments...>(m_arguments_found);
             if (not abbreviation.has_value()) {
                 m_parse_result = result::ExcessUnnamedArguments{};
                 return false;
@@ -621,7 +627,7 @@ namespace arguably {
         }
 
         /// returns false on error
-        [[nodiscard]] bool handle_single_dash_arguments(ArgumentsView& data, ParserState& state) {
+        [[nodiscard]] bool handle_single_dash_arguments(detail::ArgumentsView& data, ParserState& state) {
             if (isspace(data.current())) {
                 state = ParserState::None;
                 data.advance();
@@ -660,7 +666,7 @@ namespace arguably {
         }
 
         /// returns false on error
-        [[nodiscard]] bool handle_double_dash_argument(ArgumentsView& data, ParserState& state) {
+        [[nodiscard]] bool handle_double_dash_argument(detail::ArgumentsView& data, ParserState& state) {
             const auto arg_tail = data.arg_tail();
             const auto equals_index = arg_tail.find('=');
             const auto equals_found = (equals_index != decltype(arg_tail)::npos);
@@ -719,53 +725,54 @@ namespace arguably {
 
     private:
         std::array<bool, sizeof...(Arguments)> m_arguments_found{};
-        AnyVector m_values;
-        ParseResult m_parse_result = result::NothingParsedYet{};
+        detail::AnyVector m_values;
+        detail::ParseResult m_parse_result = result::NothingParsedYet{};
 
-        template<String, typename...>
+        template<detail::String, typename...>
         friend class ParserBuilder;
     };
 
-    template<String HelpText, typename... Arguments>
+    template<detail::String HelpText, typename... Arguments>
     class ParserBuilder final {
     private:
         constexpr ParserBuilder() = default;
 
-        explicit ParserBuilder(AnyVector&& default_values) : m_default_values{ std::move(default_values) } { }
+        explicit ParserBuilder(detail::AnyVector&& default_values) : m_default_values{ std::move(default_values) } { }
 
-        template<String, typename...>
+        template<detail::String, typename...>
         friend class ParserBuilder;
 
     public:
-        template<char Abbreviation, String Name, String Description>
+        template<char Abbreviation, detail::String Name, detail::String Description>
         [[nodiscard]] auto flag() {
-            check_duplicate<Arguments..., Flag<Abbreviation, Name, Description>>();
+            detail::check_duplicate<Arguments..., detail::Flag<Abbreviation, Name, Description>>();
             m_default_values.emplace_back(false);
-            return ParserBuilder<HelpText, Arguments..., Flag<Abbreviation, Name, Description>>{
+            return ParserBuilder<HelpText, Arguments..., detail::Flag<Abbreviation, Name, Description>>{
                 std::move(m_default_values)
             };
         }
 
-        template<char Abbreviation, String Name, String Description, typename Type>
+        template<char Abbreviation, detail::String Name, detail::String Description, typename Type>
         [[nodiscard]] auto named(Type&& default_value) {
-            check_duplicate<Arguments..., NamedParameter<Abbreviation, Name, Description, Type>>();
+            detail::check_duplicate<Arguments..., detail::NamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
-            return ParserBuilder<HelpText, Arguments..., NamedParameter<Abbreviation, Name, Description, Type>>{
+            return ParserBuilder<HelpText, Arguments..., detail::NamedParameter<Abbreviation, Name, Description, Type>>{
                 std::move(m_default_values)
             };
         }
 
-        template<char Abbreviation, String Name, String Description, typename Type>
+        template<char Abbreviation, detail::String Name, detail::String Description, typename Type>
         [[nodiscard]] auto optionally_named(Type&& default_value) {
-            check_duplicate<Arguments..., OptionallyNamedParameter<Abbreviation, Name, Description, Type>>();
+            detail::check_duplicate<
+                    Arguments..., detail::OptionallyNamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
             return ParserBuilder<
-                    HelpText, Arguments..., OptionallyNamedParameter<Abbreviation, Name, Description, Type>>{
+                    HelpText, Arguments..., detail::OptionallyNamedParameter<Abbreviation, Name, Description, Type>>{
                 std::move(m_default_values)
             };
         }
 
-        template<String NewHelpText>
+        template<detail::String NewHelpText>
         [[nodiscard]] ParserBuilder<NewHelpText, Arguments...> help() {
             return ParserBuilder<NewHelpText, Arguments...>{ std::move(m_default_values) };
         }
@@ -775,7 +782,7 @@ namespace arguably {
         }
 
     private:
-        AnyVector m_default_values;
+        detail::AnyVector m_default_values;
 
         friend ParserBuilder<""> create_parser();
     };
