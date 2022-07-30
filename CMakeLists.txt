@@ -5,12 +5,12 @@ include(CTest)
 
 set(CMAKE_CXX_STANDARD 23)
 
-if(CMAKE_COMPILER_IS_GNUCXX)
+if (CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMakeModules)
     include(${CMAKE_MODULE_PATH}/CodeCoverage.cmake)
     APPEND_COVERAGE_COMPILER_FLAGS()
     setup_target_for_coverage_gcovr_html(NAME ${PROJECT_NAME}_coverage ${PROJECT_TEST_NAME} coverage)
-endif()
+endif ()
 
 FetchContent_Declare(
         fmt
@@ -39,23 +39,23 @@ endif ()
 
 set(TARGET_LIST Arguably fmt gtest gtest_main)
 
-add_library(Arguably STATIC include/arguably.hpp)
+add_library(Arguably INTERFACE)
+target_sources(Arguably INTERFACE include/arguably.hpp)
+target_include_directories(Arguably INTERFACE ${CMAKE_SOURCE_DIR}/include)
 
-target_include_directories(Arguably PUBLIC ${CMAKE_SOURCE_DIR}/include)
-
-target_link_libraries(Arguably fmt)
+target_link_libraries(Arguably INTERFACE fmt)
 
 # set warning levels
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     message("MSVC build")
-    target_compile_options(Arguably PUBLIC /W4 /WX /permissive- /fsanitize=address)
+    target_compile_options(Arguably INTERFACE /W4 /WX /permissive- /fsanitize=address)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message("GCC build")
-    target_compile_options(Arguably PUBLIC -Wall -Wextra -Werror -pedantic -Wconversion -pthread)
+    target_compile_options(Arguably INTERFACE -Wall -Wextra -Werror -pedantic -Wconversion -pthread)
 endif ()
 
 # define DEBUG_BUILD
-target_compile_definitions(Arguably PUBLIC "$<$<CONFIG:DEBUG>:DEBUG_BUILD>")
+target_compile_definitions(Arguably INTERFACE "$<$<CONFIG:DEBUG>:DEBUG_BUILD>")
 
 foreach (target ${TARGET_LIST})
     # static runtime library
