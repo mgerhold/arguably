@@ -5,10 +5,6 @@ add_executable(
 
 target_link_libraries(Arguably_Tests PRIVATE GTest::gtest GTest::gtest_main GTest::gmock GTest::gmock_main Arguably)
 
-target_include_directories(Arguably_Tests PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
-)
-
 # set warning levels
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     message("MSVC build")
