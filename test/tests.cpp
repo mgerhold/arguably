@@ -388,6 +388,7 @@ TEST(Parser, PrintHelp) {
     EXPECT_EQ(
             stream.str(),
             "This is the best program ever!\n"
+            "-h, --help   show help\n"
             "-a, --a_arg  This is the description of a\n"
     );
 }
@@ -589,9 +590,7 @@ TEST(Parser, MissingValueAfterSingleDashNamedArgumentAbbreviation) {
 }
 
 TEST(Parser, IntegerArgument) {
-    auto parser = arguably::create_parser()
-                          .named<'i', "integer", "this is the description", int>(42)
-                          .create();
+    auto parser = arguably::create_parser().named<'i', "integer", "this is the description", int>(42).create();
     const char* argv[] = { "backseat.exe", "-i43", nullptr };
     EXPECT_FALSE(parser);
 
@@ -602,9 +601,7 @@ TEST(Parser, IntegerArgument) {
 }
 
 TEST(Parser, IntegerArgument_InvalidArgument) {
-    auto parser = arguably::create_parser()
-                          .named<'i', "integer", "this is the description", int>(42)
-                          .create();
+    auto parser = arguably::create_parser().named<'i', "integer", "this is the description", int>(42).create();
     const char* argv[] = { "backseat.exe", "-iabc", nullptr };
     EXPECT_FALSE(parser);
 
@@ -629,4 +626,55 @@ TEST(Parser, QueryIfParameterWasProvided) {
     EXPECT_EQ(parser.get<'n'>(), 42);
     EXPECT_TRUE(parser.was_provided<'i'>());
     EXPECT_FALSE(parser.was_provided<'n'>());
+}
+
+TEST(Parser, UseNonConstArgumentVector) {
+    auto parser = arguably::create_parser().named<'i', "integer", "this is the description", int>(42).create();
+    char first[] = "backseat.exe";
+    char second[] = "-i43";
+    char* argv[] = { first, second, nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), 43);
+}
+
+TEST(Parser, InfoText) {
+    auto parser = arguably::create_parser().info<"info">().help<"help">().create();
+    std::stringstream stream;
+    parser.print_help(stream);
+    EXPECT_EQ(
+            stream.str(),
+            "help\n"
+            "-h, --help  show help\n"
+    );
+
+    stream = std::stringstream {};
+    parser.print_info(stream);
+    EXPECT_EQ(
+            stream.str(),
+            "info\n"
+    );
+}
+
+TEST(Parser, ParserHasHelpFlag_IsTrueIfSet) {
+    auto parser = arguably::create_parser().create();
+    const char* argv[] = { "backseat.exe", "-h", nullptr };
+
+    EXPECT_FALSE(parser);
+    parser.parse(argv);
+    EXPECT_TRUE(parser);
+    EXPECT_TRUE(parser.get<'h'>());
+}
+
+TEST(Parser, ParserHasHelpFlag_IsFalseIfNotSet) {
+    auto parser = arguably::create_parser().create();
+    const char* argv[] = { "backseat.exe", nullptr };
+
+    EXPECT_FALSE(parser);
+    parser.parse(argv);
+    EXPECT_TRUE(parser);
+    EXPECT_FALSE(parser.get<'h'>());
 }

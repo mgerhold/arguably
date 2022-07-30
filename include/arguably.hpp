@@ -93,13 +93,23 @@ namespace arguably {
             constexpr static std::string_view description{ static_cast<std::string_view>(Description) };
         };
 
+        template<typename First, typename... Rest>
+        [[nodiscard]] constexpr usize max_name_length() {
+            constexpr usize first_length = First::name.length();
+            if constexpr (sizeof...(Rest) == 0) {
+                return first_length;
+            } else {
+                constexpr usize max_rest_length = max_name_length<Rest...>();
+                if constexpr (first_length > max_rest_length) {
+                    return first_length;
+                } else {
+                    return max_rest_length;
+                }
+            }
+        }
+
         template<typename Argument, typename... Rest>
         constexpr void check_duplicate() {
-            using namespace std::string_view_literals;
-
-            static_assert(Argument::abbreviation != 'h', "h is a reserved argument abbreviation");
-            static_assert(Argument::name != "help"sv, R"("help" is a reserved argument name)");
-
             if constexpr (sizeof...(Rest) != 0) {
                 static_assert(
                         ((Argument::abbreviation != Rest::abbreviation) and ...),
@@ -108,6 +118,14 @@ namespace arguably {
                 static_assert(((Argument::name != Rest::name) and ...), "duplicate argument names are not allowed");
                 check_duplicate<Rest...>();
             }
+        }
+
+        template<char Abbreviation, detail::String Name>
+        constexpr void check_reserved() {
+            using namespace std::string_view_literals;
+
+            static_assert(Abbreviation != 'h', "h is a reserved argument abbreviation");
+            static_assert(static_cast<std::string_view>(Name) != "help"sv, R"("help" is a reserved argument name)");
         }
 
         template<char Abbreviation, String Name, String Description>
@@ -381,28 +399,13 @@ namespace arguably {
 
     }// namespace detail
 
-    template<detail::String HelpText, typename... Arguments>
+    template<detail::String InfoText, detail::String HelpText, typename... Arguments>
     class Parser final {
     private:
         using ArgumentsMap = std::unordered_map<char, std::string>;
 
     private:
         constexpr explicit Parser(detail::AnyVector&& default_values) : m_values{ std::move(default_values) } { }
-
-        template<typename First, typename... Rest>
-        [[nodiscard]] constexpr static detail::usize max_name_length() {
-            constexpr detail::usize first_length = First::name.length();
-            if constexpr (sizeof...(Rest) == 0) {
-                return first_length;
-            } else {
-                constexpr detail::usize max_rest_length = max_name_length<Rest...>();
-                if constexpr (first_length > max_rest_length) {
-                    return first_length;
-                } else {
-                    return max_rest_length;
-                }
-            }
-        }
 
         template<typename First, typename... Rest>
         constexpr void print_help(auto&& stream, detail::usize max_name_width) const {
@@ -482,7 +485,14 @@ namespace arguably {
             if (not help_text.empty()) {
                 fmt::print(std::forward<decltype(out)>(out), "{}\n", help_text);
             }
-            print_help<Arguments...>(std::forward<decltype(out)>(out), max_name_length<Arguments...>());
+            print_help<Arguments...>(std::forward<decltype(out)>(out), detail::max_name_length<Arguments...>());
+        }
+
+        void print_info(auto&& out) const {
+            const auto info_text = static_cast<std::string_view>(InfoText);
+            if (not info_text.empty()) {
+                fmt::print(std::forward<decltype(out)>(out), "{}\n", info_text);
+            }
         }
 
         template<char Abbreviation>
@@ -732,67 +742,76 @@ namespace arguably {
         detail::AnyVector m_values;
         detail::ParseResult m_parse_result = result::NothingParsedYet{};
 
-        template<detail::String, typename...>
+        template<detail::String, detail::String, typename...>
         friend class ParserBuilder;
     };
 
-    template<detail::String HelpText, typename... Arguments>
+    template<detail::String InfoText, detail::String HelpText, typename... Arguments>
     class ParserBuilder final {
     private:
         constexpr ParserBuilder() = default;
 
         explicit ParserBuilder(detail::AnyVector&& default_values) : m_default_values{ std::move(default_values) } { }
 
-        template<detail::String, typename...>
+        template<detail::String, detail::String, typename...>
         friend class ParserBuilder;
 
     public:
         template<char Abbreviation, detail::String Name, detail::String Description>
         [[nodiscard]] auto flag() {
+            detail::check_reserved<Abbreviation, Name>();
             detail::check_duplicate<Arguments..., detail::Flag<Abbreviation, Name, Description>>();
             m_default_values.emplace_back(false);
-            return ParserBuilder<HelpText, Arguments..., detail::Flag<Abbreviation, Name, Description>>{
+            return ParserBuilder<InfoText, HelpText, Arguments..., detail::Flag<Abbreviation, Name, Description>>{
                 std::move(m_default_values)
             };
         }
 
         template<char Abbreviation, detail::String Name, detail::String Description, typename Type>
         [[nodiscard]] auto named(Type&& default_value) {
+            detail::check_reserved<Abbreviation, Name>();
             detail::check_duplicate<Arguments..., detail::NamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
-            return ParserBuilder<HelpText, Arguments..., detail::NamedParameter<Abbreviation, Name, Description, Type>>{
+            return ParserBuilder<
+                    InfoText, HelpText, Arguments..., detail::NamedParameter<Abbreviation, Name, Description, Type>>{
                 std::move(m_default_values)
             };
         }
 
         template<char Abbreviation, detail::String Name, detail::String Description, typename Type>
         [[nodiscard]] auto optionally_named(Type&& default_value) {
+            detail::check_reserved<Abbreviation, Name>();
             detail::check_duplicate<
                     Arguments..., detail::OptionallyNamedParameter<Abbreviation, Name, Description, Type>>();
             m_default_values.emplace_back(std::forward<Type>(default_value));
             return ParserBuilder<
-                    HelpText, Arguments..., detail::OptionallyNamedParameter<Abbreviation, Name, Description, Type>>{
-                std::move(m_default_values)
-            };
+                    InfoText, HelpText, Arguments...,
+                    detail::OptionallyNamedParameter<Abbreviation, Name, Description, Type>>{ std::move(m_default_values
+            ) };
         }
 
         template<detail::String NewHelpText>
-        [[nodiscard]] ParserBuilder<NewHelpText, Arguments...> help() {
-            return ParserBuilder<NewHelpText, Arguments...>{ std::move(m_default_values) };
+        [[nodiscard]] auto help() {
+            return ParserBuilder<InfoText, NewHelpText, Arguments...>{ std::move(m_default_values) };
         }
 
-        [[nodiscard]] Parser<HelpText, Arguments...> create() {
-            return Parser<HelpText, Arguments...>{ std::move(m_default_values) };
+        template<detail::String NewInfoText>
+        [[nodiscard]] auto info() {
+            return ParserBuilder<NewInfoText, HelpText, Arguments...>{ std::move(m_default_values) };
+        }
+
+        [[nodiscard]] auto create() {
+            return Parser<InfoText, HelpText, Arguments...>{ std::move(m_default_values) };
         }
 
     private:
         detail::AnyVector m_default_values;
 
-        friend ParserBuilder<""> create_parser();
+        friend ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser();
     };
 
-    [[nodiscard]] ParserBuilder<""> create_parser() {
-        return ParserBuilder<"">{};
+    [[nodiscard]] ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser() {
+        return ParserBuilder<"", "", detail::Flag<'h', "help", "show help">>{ detail::AnyVector{ { false } } };
     }
 
 }// namespace arguably
