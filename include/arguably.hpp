@@ -480,7 +480,7 @@ namespace arguably {
             return get_name<Abbreviation, Arguments...>();
         }
 
-        void print_help(auto&& out = stdout) const {
+        void print_help(auto&& out) const {
             const auto help_text = static_cast<std::string_view>(HelpText);
             if (not help_text.empty()) {
                 fmt::print(std::forward<decltype(out)>(out), "{}\n", help_text);
@@ -488,7 +488,7 @@ namespace arguably {
             print_help<Arguments...>(std::forward<decltype(out)>(out), detail::max_name_length<Arguments...>());
         }
 
-        void print_info(auto&& out = stdout) const {
+        void print_info(auto&& out) const {
             const auto info_text = static_cast<std::string_view>(InfoText);
             if (not info_text.empty()) {
                 fmt::print(std::forward<decltype(out)>(out), "{}\n", info_text);
