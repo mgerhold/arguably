@@ -8,7 +8,7 @@
 A simple-to-use command line argument parser written in modern C++.
 
 ## Usage
-You can create a parser using the [*builder pattern*](https://en.wikipedia.org/wiki/Builder_pattern). There are three different kinds of arguments:
+You can create a parser using the builder pattern. There are three different kinds of arguments:
 * flags (`true` or `false`),
 * named parameters, and
 * optionally named parameters.
@@ -26,7 +26,7 @@ auto parser = arguably::create_parser()
 parser.parse(argv);
 
 if (parser) { // did the parsing succeed?
-    std::cout << parser.get<'f'>() << "\n"; // prints the argument passed to 'f'
+    std::cout << parser.get<'f'>() << "\n"; // prints the argument passed to 'f' (or the provided default value)
 }
 ```
 For flags, you just do:
@@ -44,7 +44,7 @@ For optionally named parameters, you just do:
 
 ## Features
 
-This library does compile-time-checks. The following code won't compile:
+This library does compile-time-checks. For example, the following code won't compile:
 ```cpp
 auto parser = arguably::create_parser()
                     .flag<'a', "a_flag", "this is a description">()
