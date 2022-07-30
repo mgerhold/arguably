@@ -539,6 +539,10 @@ namespace arguably {
             m_values[index] = true;
         }
 
+        void parse(char** argv) {
+            parse(const_cast<const char**>(argv));
+        }
+
         void parse(const char** argv) {
             if (not result_is<result::NothingParsedYet>()) {
                 m_parse_result = result::CannotParseAgain{};
