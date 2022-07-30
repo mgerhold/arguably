@@ -378,12 +378,12 @@ namespace arguably {
     }
 
     template<String HelpText, typename... Arguments>
-    class Parser {
+    class Parser final {
     private:
         using ArgumentsMap = std::unordered_map<char, std::string>;
 
     private:
-        explicit Parser(AnyVector&& default_values) : m_values{ std::move(default_values) } { }
+        constexpr explicit Parser(AnyVector&& default_values) : m_values{ std::move(default_values) } { }
 
         template<typename First, typename... Rest>
         [[nodiscard]] constexpr static usize max_name_length() {
@@ -482,16 +482,23 @@ namespace arguably {
         }
 
         template<char Abbreviation>
-        [[nodiscard]] consteval usize index_of() const {
+        [[nodiscard]] static consteval usize index_of() {
             return index_of_impl<Abbreviation, 0, Arguments...>();
         }
 
-        [[nodiscard]] constexpr usize index_of(const char abbreviation) const {
+        [[nodiscard]] static constexpr usize index_of(const char abbreviation) {
             return index_of_impl<0, Arguments...>(abbreviation);
         }
 
         void print_default_values() const {
             print_default_values_impl<0, Arguments...>(m_values);
+        }
+
+        template<char Abbreviation>
+        [[nodiscard]] bool was_provided() {
+            static_assert(has_abbreviation<Abbreviation>(), "unknown abbreviation");
+            static constexpr auto index = index_of<Abbreviation>();
+            return m_arguments_found[index];
         }
 
         template<char Abbreviation>
@@ -720,9 +727,9 @@ namespace arguably {
     };
 
     template<String HelpText, typename... Arguments>
-    class ParserBuilder {
+    class ParserBuilder final {
     private:
-        ParserBuilder() = default;
+        constexpr ParserBuilder() = default;
 
         explicit ParserBuilder(AnyVector&& default_values) : m_default_values{ std::move(default_values) } { }
 

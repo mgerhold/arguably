@@ -613,3 +613,20 @@ TEST(Parser, IntegerArgument_InvalidArgument) {
     EXPECT_FALSE(parser);
     EXPECT_TRUE(parser.result_is<arguably::result::ArgumentTypeMismatch>());
 }
+
+TEST(Parser, QueryIfParameterWasProvided) {
+    auto parser = arguably::create_parser()
+                          .named<'i', "integer", "this is the description", int>(42)
+                          .named<'n', "number", "this is the description", int>(42)
+                          .create();
+    const char* argv[] = { "backseat.exe", "-i42", nullptr };
+    EXPECT_FALSE(parser);
+
+    parser.parse(argv);
+
+    EXPECT_TRUE(parser);
+    EXPECT_EQ(parser.get<'i'>(), 42);
+    EXPECT_EQ(parser.get<'n'>(), 42);
+    EXPECT_TRUE(parser.was_provided<'i'>());
+    EXPECT_FALSE(parser.was_provided<'n'>());
+}
