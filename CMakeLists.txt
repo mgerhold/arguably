@@ -5,7 +5,9 @@ include(CTest)
 
 set(CMAKE_CXX_STANDARD 23)
 
-if (CMAKE_COMPILER_IS_GNUCXX)
+option(MEASURE_CODE_COVERAGE "activate the code coverage measurement")
+
+if (CMAKE_COMPILER_IS_GNUCXX AND MEASURE_CODE_COVERAGE)
     set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMakeModules)
     include(${CMAKE_MODULE_PATH}/CodeCoverage.cmake)
     APPEND_COVERAGE_COMPILER_FLAGS()
