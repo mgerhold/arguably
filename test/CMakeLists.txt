@@ -8,10 +8,10 @@ target_link_libraries(Arguably_Tests PRIVATE GTest::gtest GTest::gtest_main GTes
 # set warning levels
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     message("MSVC build")
-    target_compile_options(Arguably_Tests PUBLIC /W4 /permissive- /fsanitize=address)
+    target_compile_options(Arguably_Tests PUBLIC /W4 /permissive-)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message("GCC build")
-    target_compile_options(Arguably_Tests PUBLIC -Wall -Wextra -pedantic -Wconversion -pthread)
+    target_compile_options(Arguably_Tests PUBLIC -Wall -Wextra -pedantic -Wconversion)
 endif ()
 
 # define DEBUG_BUILD
