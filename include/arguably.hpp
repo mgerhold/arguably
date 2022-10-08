@@ -807,10 +807,10 @@ namespace arguably {
     private:
         detail::AnyVector m_default_values;
 
-        friend ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser();
+        friend inline ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser();
     };
 
-    [[nodiscard]] ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser() {
+    [[nodiscard]] inline ParserBuilder<"", "", detail::Flag<'h', "help", "show help">> create_parser() {
         return ParserBuilder<"", "", detail::Flag<'h', "help", "show help">>{ detail::AnyVector{ { false } } };
     }
 
